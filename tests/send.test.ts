@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { RunRecord, StepRecord, ToolCallRecord } from 'telmoni';
@@ -256,6 +256,27 @@ describe('connecting', () => {
       const log = readFileSync(join(home.path, 'state', 'telmoni', 'opencode', 'plugin.log'), 'utf8').trim().split('\n');
       expect(log).toHaveLength(1);
       expect(log[0]).toMatch(/^\S+ opencode 2: no key: set TELMONI_API_KEY, or apiKey in telmoni\.json/);
+    } finally {
+      home.remove();
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')('says why a key file was passed over, by kind, and never what is in it', () => {
+    const home = tempDir();
+    try {
+      const env = { HOME: home.path, XDG_STATE_HOME: join(home.path, 'state'), XDG_CONFIG_HOME: join(home.path, 'config') };
+      const file = join(home.path, 'config', 'opencode', 'telmoni.json');
+      mkdirSync(join(home.path, 'config', 'opencode'), { recursive: true });
+      writeFileSync(file, '{ "apiKey": "telmoni_secret_0001", ');
+      chmodSync(file, 0o600);
+      expect(connect(1, env)).toBeUndefined();
+      writeFileSync(file, JSON.stringify({ apiKey: 'telmoni_secret_0001', endpoint: 'https://elsewhere.example' }));
+      chmodSync(file, 0o644);
+      expect(connect(2, env)).toBeUndefined();
+      const log = readFileSync(join(home.path, 'state', 'telmoni', 'opencode', 'plugin.log'), 'utf8');
+      expect(log).toContain('opencode 1: key file not used: not JSON');
+      expect(log).toContain('opencode 2: key file not used: open to other users; chmod 600 it');
+      for (const secret of ['telmoni_secret_0001', 'elsewhere', home.path]) expect(log).not.toContain(secret);
     } finally {
       home.remove();
     }
