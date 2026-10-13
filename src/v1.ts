@@ -387,6 +387,13 @@ export class V1Turns {
         }
         return;
       }
+      case 'message.removed': {
+        // Taken back while its turn ran: a reply the read would otherwise
+        // look for back to the session's start, and never find.
+        const id = idOf(properties['messageID']);
+        if (id !== undefined) this.#open.get(idOf(properties['sessionID']) ?? '')?.replies.delete(id);
+        return;
+      }
       default:
         return;
     }

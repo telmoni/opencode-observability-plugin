@@ -395,6 +395,40 @@ describe('an OpenCode 1 turn’s name', () => {
   });
 });
 
+describe('an OpenCode 1 turn OpenCode wrote over', () => {
+  it('leaves out a reply taken back while it ran, and reads no further back for it', async () => {
+    const earlier = Array.from({ length: 12 }, (_, index) => ({
+      info: { id: `msg_rm_old_${index}`, sessionID: 'ses_rm', role: index % 2 === 0 ? 'user' : 'assistant', time: { created: at(-60_000 + index * 1_000) } },
+      parts: [],
+    }));
+    const fixture: V1Fixture = {
+      events: [
+        status('ses_rm', 'busy'),
+        updated(assistant('msg_rm_a1', 'ses_rm', 'msg_rm_u', at(100))),
+        updated(assistant('msg_rm_a2', 'ses_rm', 'msg_rm_u', at(1_000))),
+        { id: 'evt_rm_removed', type: 'message.removed', properties: { sessionID: 'ses_rm', messageID: 'msg_rm_a2' } },
+        status('ses_rm', 'idle'),
+      ],
+      sessions: {
+        ses_rm: {
+          info: { id: 'ses_rm', title: '…' },
+          messages: [
+            ...earlier,
+            { info: { id: 'msg_rm_u', sessionID: 'ses_rm', role: 'user', time: { created: at(0) } }, parts: [] },
+            { info: { ...assistant('msg_rm_a1', 'ses_rm', 'msg_rm_u', at(100)), time: { created: at(100), completed: at(900) } }, parts: stepped('msg_rm_a1', 'ses_rm') },
+          ],
+        },
+      },
+    };
+    const { sent, reads } = await replay(fixture, { pageSize: 2 });
+    const run = only(sent);
+    expect(run.runId).toBe(runIdOf('ses_rm', 'msg_rm_u'));
+    expect((run.inside ?? []).map((item) => item.start)).toEqual([at(100)]);
+    // The prompt and its one reply are the newest page: a reply it waited on in vain would read back to the session's start.
+    expect(reads.filter((read) => read.path.endsWith('/message'))).toHaveLength(1);
+  });
+});
+
 describe('an OpenCode 1 read that fails', () => {
   it('is logged by its status alone, and nothing is sent', async () => {
     const fixture: V1Fixture = {
