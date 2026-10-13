@@ -148,6 +148,27 @@ describe('a turn of OpenCode 1', () => {
     expect((await replay(statusOnly)).sent).toEqual((await replay(fixture)).sent);
   });
 
+  it('is open while its session retries, so one the plugin came into then keeps the reply it was retrying', async () => {
+    const fixture: V1Fixture = {
+      events: [
+        { id: 'evt_rt_retry', type: 'session.status', properties: { sessionID: 'ses_rt', status: { type: 'retry', attempt: 1, message: '…', next: at(3_000) } } },
+        updated(assistant('msg_rt_a', 'ses_rt', 'msg_rt_u', at(-500))),
+        status('ses_rt', 'busy'),
+        status('ses_rt', 'idle'),
+      ],
+      sessions: {
+        ses_rt: {
+          info: { id: 'ses_rt', title: '…' },
+          messages: [
+            { info: { id: 'msg_rt_u', sessionID: 'ses_rt', role: 'user', time: { created: at(-1_000) } }, parts: [] },
+            { info: { ...assistant('msg_rt_a', 'ses_rt', 'msg_rt_u', at(-500)), time: { created: at(-500), completed: at(4_000) } }, parts: stepped('msg_rt_a', 'ses_rt') },
+          ],
+        },
+      },
+    };
+    expect(only((await replay(fixture)).sent).runId).toBe(runIdOf('ses_rt', 'msg_rt_u'));
+  });
+
   it('has the same run id, and the same record, every time it is read', async () => {
     for (const name of ['turn', 'subagent', 'interrupted', 'failed']) {
       expect((await replay(name)).sent).toEqual((await replay(name)).sent);
@@ -255,6 +276,60 @@ describe('a subagent in OpenCode 1', () => {
     expect(background.name).toBe('subagent explore');
     expect((background.calls ?? []).map((call) => [call.start, call.end])).toEqual([[at(700), at(8_000)]]);
     expect([background.start, background.end]).toEqual([at(500), at(8_000)]);
+  });
+
+  it('is read back only as far as the call that took it up, however long its session', async () => {
+    const before = Array.from({ length: 20 }, (_, index) => ({
+      info: { id: `msg_long_old_${String(index).padStart(2, '0')}`, sessionID: 'ses_long_kid', role: index % 2 === 0 ? 'user' : 'assistant', time: { created: at(-200_000 + index * 1_000) } },
+      parts: [],
+    }));
+    const fixture: V1Fixture = {
+      events: [
+        { id: 'evt_long_kid', type: 'session.created', properties: { sessionID: 'ses_long_kid', info: { id: 'ses_long_kid', parentID: 'ses_long', title: '…' } } },
+        status('ses_long', 'busy'),
+        updated(assistant('msg_long_a', 'ses_long', 'msg_long_u', at(100))),
+        status('ses_long', 'idle'),
+      ],
+      sessions: {
+        ses_long: {
+          info: { id: 'ses_long', title: '…' },
+          messages: [
+            { info: { id: 'msg_long_u', sessionID: 'ses_long', role: 'user', time: { created: at(0) } }, parts: [] },
+            {
+              info: { ...assistant('msg_long_a', 'ses_long', 'msg_long_u', at(100)), time: { created: at(100), completed: at(5_000) } },
+              parts: [
+                ...stepped('msg_long_a', 'ses_long'),
+                {
+                  id: 'prt_long_task',
+                  sessionID: 'ses_long',
+                  messageID: 'msg_long_a',
+                  type: 'tool',
+                  callID: 'call_long',
+                  tool: 'task',
+                  state: { status: 'completed', input: {}, output: '…', title: '…', metadata: { sessionId: 'ses_long_kid' }, time: { start: at(1_000), end: at(4_000) } },
+                },
+              ],
+            },
+          ],
+        },
+        ses_long_kid: {
+          info: { id: 'ses_long_kid', parentID: 'ses_long', title: '…' },
+          messages: [
+            ...before,
+            { info: { id: 'msg_long_ku', sessionID: 'ses_long_kid', role: 'user', time: { created: at(1_050) }, agent: 'explore' }, parts: [] },
+            {
+              info: { ...assistant('msg_long_k1', 'ses_long_kid', 'msg_long_ku', at(1_100)), agent: 'explore', time: { created: at(1_100), completed: at(3_900) } },
+              parts: stepped('msg_long_k1', 'ses_long_kid'),
+            },
+          ],
+        },
+      },
+    };
+    const { sent, reads } = await replay(fixture, { pageSize: 2 });
+    const step = (only(sent).inside ?? []).find((item): item is StepRecord => item.type === 'step')!;
+    expect((step.calls ?? []).map((call) => call.start)).toEqual([at(1_100)]);
+    // Its newest page, then the one before, which reaches back past the call: no further.
+    expect(reads.filter((read) => read.path === '/session/ses_long_kid/message')).toHaveLength(2);
   });
 
   it('is never a run of its own, even where its parent is learned only by reading its session', async () => {
@@ -426,6 +501,60 @@ describe('an OpenCode 1 turn OpenCode wrote over', () => {
     expect((run.inside ?? []).map((item) => item.start)).toEqual([at(100)]);
     // The prompt and its one reply are the newest page: a reply it waited on in vain would read back to the session's start.
     expect(reads.filter((read) => read.path.endsWith('/message'))).toHaveLength(1);
+  });
+});
+
+describe('an OpenCode 1 turn in a session too long to read back through', () => {
+  it('is read forty pages back at most, and recorded from what was read', async () => {
+    const earlier = Array.from({ length: 200 }, (_, index) => ({
+      info: { id: `msg_huge_old_${String(index).padStart(3, '0')}`, sessionID: 'ses_huge', role: index % 2 === 0 ? 'user' : 'assistant', time: { created: at(-600_000 + index * 1_000) } },
+      parts: [],
+    }));
+    const fixture: V1Fixture = {
+      events: [
+        status('ses_huge', 'busy'),
+        updated(assistant('msg_huge_a1', 'ses_huge', 'msg_huge_u', at(100))),
+        // A reply OpenCode made and then took back with no event to say so: never found.
+        updated(assistant('msg_huge_gone', 'ses_huge', 'msg_huge_u', at(500))),
+        status('ses_huge', 'idle'),
+      ],
+      sessions: {
+        ses_huge: {
+          info: { id: 'ses_huge', title: '…' },
+          messages: [
+            ...earlier,
+            { info: { id: 'msg_huge_u', sessionID: 'ses_huge', role: 'user', time: { created: at(0) } }, parts: [] },
+            { info: { ...assistant('msg_huge_a1', 'ses_huge', 'msg_huge_u', at(100)), time: { created: at(100), completed: at(900) } }, parts: stepped('msg_huge_a1', 'ses_huge') },
+          ],
+        },
+      },
+    };
+    const { sent, reads } = await replay(fixture, { pageSize: 2 });
+    expect(reads.filter((read) => read.path.endsWith('/message'))).toHaveLength(40);
+    const run = only(sent);
+    expect(run.runId).toBe(runIdOf('ses_huge', 'msg_huge_u'));
+    expect((run.inside ?? []).map((item) => item.start)).toEqual([at(100)]);
+  });
+});
+
+describe('an OpenCode 1 turn whose clock runs backwards', () => {
+  it('never holds a span that ends before it starts, which the SDK would refuse whole', async () => {
+    // Every time in every fixture's messages mirrored, so each later thing
+    // reads as earlier: the worst a clock stepping back can do.
+    for (const name of ['turn', 'subagent', 'interrupted', 'failed']) {
+      const fixture = v1Fixture(name);
+      const mirror = (value: unknown, key?: string): unknown => {
+        if (typeof value === 'number' && key !== undefined && ['created', 'completed', 'start', 'end'].includes(key)) return 2 * T0 - value;
+        if (Array.isArray(value)) return value.map((each) => mirror(each));
+        if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, mirror(v, k)]));
+        return value;
+      };
+      const mirrored = { ...fixture, sessions: mirror(fixture.sessions) as V1Fixture['sessions'] };
+      for (const run of (await replay(mirrored, { now: () => 2 * T0 - at(60_000) })).sent) {
+        const spans = [run, ...(run.inside ?? []), ...(run.inside ?? []).flatMap((item) => (item.type === 'step' ? (item.calls ?? []) : []))];
+        for (const span of spans) expect(Number(span.end)).toBeGreaterThanOrEqual(Number(span.start));
+      }
+    }
   });
 });
 

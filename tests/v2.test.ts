@@ -239,6 +239,15 @@ describe('what is no turn in OpenCode 2', () => {
     const noise: V2Event[] = [{}, { type: 'session.execution.started' }, { type: 'session.step.started', data: null }, { type: 'session.execution.started', data: { sessionID: '/work/…' } }];
     expect(replay([...noise, ...fixture.events]).sent).toEqual(replay(fixture).sent);
   });
+
+  it('an event of a kind OpenCode adds later, or a field it adds, which changes nothing', () => {
+    const fixture = v2Fixture('turn');
+    const later = fixture.events.flatMap((each): V2Event[] => [
+      { ...each, data: { ...(each.data as object), shape: { added: '…' }, rank: 3 } },
+      { type: 'session.thought.weighed', created: each.created, data: { sessionID: 'ses_v2_root_0001', weight: '…' } },
+    ]);
+    expect(replay(later).sent).toEqual(replay(fixture).sent);
+  });
 });
 
 describe('an OpenCode 2 tool call', () => {
@@ -268,6 +277,22 @@ describe('an OpenCode 2 tool call', () => {
     const run = only(replay(events).sent);
     expect((run.inside ?? []).find((item) => item.type === 'tool_call')).toMatchObject({ name: 'unknown', errorType: 'ToolError' });
     expect(JSON.stringify(run)).not.toContain('/');
+  });
+});
+
+describe('an OpenCode 2 turn whose clock runs backwards', () => {
+  it('never holds a span that ends before it starts, which the SDK would refuse whole', () => {
+    // Every event of every fixture published in reverse time order, its
+    // payload's own times kept: the worst a clock stepping back can do.
+    for (const name of ['turn', 'subagent', 'interrupted', 'shutdown', 'failed']) {
+      const events = v2Fixture(name).events;
+      const times = events.map((each) => each.created as number).reverse();
+      const reversed = events.map((each, index) => ({ ...each, created: times[index] }));
+      for (const run of replay(reversed).sent) {
+        const spans = [run, ...(run.inside ?? []), ...(run.inside ?? []).flatMap((item) => (item.type === 'step' ? (item.calls ?? []) : []))];
+        for (const span of spans) expect(Number(span.end)).toBeGreaterThanOrEqual(Number(span.start));
+      }
+    }
   });
 });
 
