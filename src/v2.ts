@@ -27,6 +27,7 @@ import {
   runOf,
   subagentStep,
   toolCall,
+  toolNameOf,
   usageOf,
 } from './record.js';
 import { connect } from './send.js';
@@ -231,7 +232,9 @@ export class V2Turns {
       }
       case 'session.tool.input.started': {
         const id = keyOf(data['id']);
-        const name = stringOf(data['name']);
+        // The name the model wrote, kept only where it is a plain name.
+        const named = stringOf(data['name']);
+        const name = named === undefined ? undefined : toolNameOf(named);
         const work = id === undefined || name === undefined ? undefined : this.#workOf(sessionId, at, false);
         if (work !== undefined && id !== undefined && name !== undefined && !work.tools.has(id)) {
           work.tools.set(id, { name, asked: at });

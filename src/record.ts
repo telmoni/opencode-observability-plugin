@@ -114,6 +114,45 @@ export function agentOf(value: unknown): string | undefined {
   return typeof value === 'string' && AGENT_NAME.test(value) ? value : undefined;
 }
 
+/**
+ * A tool's name: a plain name, as every provider has a tool's, within the
+ * 128 characters ingest takes. OpenCode 2 hands over whatever name the model
+ * wrote, so anything else is text, and is recorded as `unknown`.
+ */
+const TOOL_NAME = /^[\w.:@+-]{1,128}$/;
+
+export function toolNameOf(value: unknown): string {
+  return typeof value === 'string' && TOOL_NAME.test(value) ? value : 'unknown';
+}
+
+/** Ingest takes a provider's name to 128 characters, and a span's too: `chat <model>` for a model call's. */
+const NAME_MAX = 128;
+const MODEL_MAX = NAME_MAX - 'chat '.length;
+
+/** A name holds no control character. */
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+
+/** A file's path, which a model's name, chosen in a person's configuration, may be: never recorded. */
+const PATH = /^(?:[/\\~]|[A-Za-z]:[/\\])/;
+
+/** `value`'s characters, as ingest counts them, where it is a name: something in it, and no control character. */
+function charactersOf(value: string): string[] | undefined {
+  const name = value.trim();
+  return name === '' || CONTROL.test(name) ? undefined : Array.from(name);
+}
+
+/** A model's name as OpenCode spells it, cut to what ingest takes, or `unknown` where it is no name. */
+export function modelNameOf(value: string): string {
+  const name = charactersOf(value)?.slice(0, MODEL_MAX).join('');
+  return name === undefined || PATH.test(name) ? 'unknown' : name;
+}
+
+/** A provider's name, the conventions' where they have one, or none where ingest would not take it whole. */
+function providerNameOf(providerId: string): string | undefined {
+  const characters = charactersOf(providerOf(providerId));
+  return characters !== undefined && characters.length <= NAME_MAX ? characters.join('') : undefined;
+}
+
 /** When something ran, and how it ended; neither outcome set is ok. */
 export interface Span {
   start: number;
@@ -129,14 +168,15 @@ function settle<T extends RecordOutcome>(target: T, span: Span): T {
 }
 
 export function modelCall(model: string, providerId: string | undefined, span: Span, usage: Usage | undefined): ModelCallRecord {
-  const call: ModelCallRecord = { type: 'model_call', model, start: span.start, end: Math.max(span.start, span.end) };
-  if (providerId !== undefined) call.provider = providerOf(providerId);
+  const call: ModelCallRecord = { type: 'model_call', model: modelNameOf(model), start: span.start, end: Math.max(span.start, span.end) };
+  const provider = providerId === undefined ? undefined : providerNameOf(providerId);
+  if (provider !== undefined) call.provider = provider;
   if (usage !== undefined) call.usage = usage;
   return settle(call, span);
 }
 
 export function toolCall(name: string, span: Span): ToolCallRecord {
-  return settle<ToolCallRecord>({ type: 'tool_call', name, start: span.start, end: Math.max(span.start, span.end) }, span);
+  return settle<ToolCallRecord>({ type: 'tool_call', name: toolNameOf(name), start: span.start, end: Math.max(span.start, span.end) }, span);
 }
 
 /** A subagent's work: a step named by its agent, holding its calls, from the first of them to the last. */

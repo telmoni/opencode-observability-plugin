@@ -97,6 +97,37 @@ describe('an error’s kind', () => {
   });
 });
 
+describe('a name a record holds', () => {
+  it('is a tool’s where it is a plain name, and `unknown` where it reads like text the model wrote', () => {
+    for (const name of ['bash', 'github_create_issue', 'mcp__linear__list', 'functions.read', 'x'.repeat(128)]) {
+      expect(toolCall(name, { start: at(0), end: at(1) }).name).toBe(name);
+    }
+    for (const junk of ['read the file at /etc/hosts', 'a/b', '…', '', 'x'.repeat(129), 'tab\there']) {
+      expect(toolCall(junk, { start: at(0), end: at(1) }).name).toBe('unknown');
+    }
+  });
+
+  it('is a model’s as OpenCode spells it, short enough that `chat <model>` fits ingest’s 128, and never a path', () => {
+    for (const model of ['claude-sonnet-4-5', 'anthropic/claude-sonnet-4.5', '@cf/meta/llama-3.1-8b-instruct', 'qwen2.5-coder:7b', 'claude-3-5-sonnet@20240620']) {
+      expect(modelCall(model, undefined, { start: at(0), end: at(1) }, undefined).model).toBe(model);
+    }
+    const long = modelCall('m'.repeat(200), undefined, { start: at(0), end: at(1) }, undefined).model;
+    expect(long).toBe('m'.repeat(123));
+    expect(`chat ${long}`.length).toBe(128);
+    // Cut by characters, as ingest counts them, never inside one.
+    expect(modelCall('😀'.repeat(130), undefined, { start: at(0), end: at(1) }, undefined).model).toBe('😀'.repeat(123));
+    for (const path of ['/home/someone/models/llama.gguf', '~/models/x', 'C:\\models\\x', 'D:/models/x', 'a\nb', ' ']) {
+      expect(modelCall(path, undefined, { start: at(0), end: at(1) }, undefined).model).toBe('unknown');
+    }
+  });
+
+  it('is a provider’s within ingest’s 128, or none', () => {
+    expect(modelCall('m', 'my-gateway', { start: at(0), end: at(1) }, undefined).provider).toBe('my-gateway');
+    expect(modelCall('m', 'p'.repeat(129), { start: at(0), end: at(1) }, undefined).provider).toBeUndefined();
+    expect(modelCall('m', 'bad\u0007id', { start: at(0), end: at(1) }, undefined).provider).toBeUndefined();
+  });
+});
+
 describe('a run', () => {
   it('holds its calls in the order they started, from its opening to the last of its work', () => {
     const late: ToolCallRecord = toolCall('bash', { start: at(500), end: at(900), errorType: 'ToolError' });

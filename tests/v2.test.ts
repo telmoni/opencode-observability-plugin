@@ -256,6 +256,19 @@ describe('an OpenCode 2 tool call', () => {
     expect((run.inside ?? []).filter((item) => item.type === 'tool_call')).toEqual([{ type: 'tool_call', name: 'read', start: at(320), end: at(900) }]);
     expect(JSON.stringify(run)).not.toContain('functions.read:0');
   });
+
+  it('is named `unknown` where the model made up a name that reads like text', () => {
+    const events: V2Event[] = [
+      event('session.execution.started', 0, { sessionID: 'ses_odd' }),
+      ...reply('ses_odd', 'msg_odd_a', 100),
+      event('session.tool.input.started', 300, { sessionID: 'ses_odd', assistantMessageID: 'msg_odd_a', id: 'call_1', name: 'open /work/… and read it' }),
+      event('session.tool.failed', 400, { sessionID: 'ses_odd', assistantMessageID: 'msg_odd_a', id: 'call_1', error: { type: 'tool.unknown', message: '…' }, executed: false }),
+      event('session.execution.succeeded', 1_000, { sessionID: 'ses_odd' }),
+    ];
+    const run = only(replay(events).sent);
+    expect((run.inside ?? []).find((item) => item.type === 'tool_call')).toMatchObject({ name: 'unknown', errorType: 'ToolError' });
+    expect(JSON.stringify(run)).not.toContain('/');
+  });
 });
 
 describe('an OpenCode 2 record', () => {
