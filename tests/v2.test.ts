@@ -241,6 +241,23 @@ describe('what is no turn in OpenCode 2', () => {
   });
 });
 
+describe('an OpenCode 2 tool call', () => {
+  it('is matched by whatever id the provider gave it, which no record holds', () => {
+    const events: V2Event[] = [
+      event('session.execution.started', 0, { sessionID: 'ses_kimi' }),
+      event('session.inbox.delivered', 5, { sessionID: 'ses_kimi', inboxID: 'msg_kimi_u' }),
+      ...reply('ses_kimi', 'msg_kimi_a', 100),
+      event('session.tool.input.started', 300, { sessionID: 'ses_kimi', assistantMessageID: 'msg_kimi_a', id: 'functions.read:0', name: 'read' }),
+      event('session.tool.called', 320, { sessionID: 'ses_kimi', assistantMessageID: 'msg_kimi_a', id: 'functions.read:0', input: {}, executed: true }),
+      event('session.tool.success', 900, { sessionID: 'ses_kimi', assistantMessageID: 'msg_kimi_a', id: 'functions.read:0', content: [], executed: true }),
+      event('session.execution.succeeded', 1_000, { sessionID: 'ses_kimi' }),
+    ];
+    const run = only(replay(events).sent);
+    expect((run.inside ?? []).filter((item) => item.type === 'tool_call')).toEqual([{ type: 'tool_call', name: 'read', start: at(320), end: at(900) }]);
+    expect(JSON.stringify(run)).not.toContain('functions.read:0');
+  });
+});
+
 describe('an OpenCode 2 record', () => {
   it('carries nothing of what was said: no text, no input or output, no title, no path, no error message', () => {
     const records = ['turn', 'subagent', 'interrupted', 'shutdown', 'failed'].flatMap((name) => replay(name).sent);

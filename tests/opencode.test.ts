@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { fieldsOf, idOf, stringOf, timeOf, v1MessageOf } from '../src/opencode';
+import { fieldsOf, idOf, keyOf, stringOf, timeOf, v1MessageOf } from '../src/opencode';
 
 describe('what OpenCode hands over', () => {
   it('is an object only where it is a plain one', () => {
@@ -14,9 +14,11 @@ describe('what OpenCode hands over', () => {
     for (const other of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, '1791795600000', undefined]) expect(timeOf(other)).toBeUndefined();
   });
 
-  it('is an id only where it is a plain one, never a path', () => {
+  it('is an id only where it is a plain one, never a path, a key a call is matched by where it is any short string', () => {
     expect(idOf('ses_ecd7186e0ffeAMirtb5MmWpDTy')).toBe('ses_ecd7186e0ffeAMirtb5MmWpDTy');
     for (const other of ['../..', '/work/…', 'a b', '', 'x'.repeat(129), 7]) expect(idOf(other)).toBeUndefined();
+    for (const key of ['toolu_01A09q90qw90lq917835lq9', 'call_abc123', 'functions.read:0']) expect(keyOf(key)).toBe(key);
+    for (const other of ['', 'x'.repeat(257), 7, null]) expect(keyOf(other)).toBeUndefined();
     expect(stringOf('')).toBeUndefined();
   });
 

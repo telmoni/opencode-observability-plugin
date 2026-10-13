@@ -23,11 +23,20 @@ export function timeOf(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
-/** An id OpenCode gave a session, message or call: plain, never a path. */
+/** An id OpenCode gave a session or message: plain, never a path. */
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 
 export function idOf(value: unknown): string | undefined {
   return typeof value === 'string' && ID.test(value) ? value : undefined;
+}
+
+/**
+ * The id a call is matched by, which OpenCode 2 takes from the provider
+ * (`toolu_…`, `call_…`, Kimi's `functions.read:0`): only ever compared, never
+ * recorded or logged, so any short string.
+ */
+export function keyOf(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '' && value.length <= 256 ? value : undefined;
 }
 
 // OpenCode 1 (`opencode-ai`, `@opencode-ai/plugin`).

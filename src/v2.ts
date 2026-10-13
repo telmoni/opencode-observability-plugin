@@ -16,7 +16,7 @@
 import type { CallRecord, ModelCallRecord, RunRecord, StepRecord, Usage } from 'telmoni';
 
 import { kindOf } from './log.js';
-import { type Fields, type V2Cleanup, type V2Context, type V2Event, fieldsOf, idOf, stringOf, timeOf } from './opencode.js';
+import { type Fields, type V2Cleanup, type V2Context, type V2Event, fieldsOf, idOf, keyOf, stringOf, timeOf } from './opencode.js';
 import {
   MAX_DEPTH,
   SUBAGENT_TOOLS,
@@ -230,7 +230,7 @@ export class V2Turns {
         return;
       }
       case 'session.tool.input.started': {
-        const id = idOf(data['id']);
+        const id = keyOf(data['id']);
         const name = stringOf(data['name']);
         const work = id === undefined || name === undefined ? undefined : this.#workOf(sessionId, at, false);
         if (work !== undefined && id !== undefined && name !== undefined && !work.tools.has(id)) {
@@ -340,7 +340,7 @@ export class V2Turns {
   }
 
   #toolOf(sessionId: string, data: Fields): Tool | undefined {
-    const id = idOf(data['id']);
+    const id = keyOf(data['id']);
     return id === undefined ? undefined : this.#work(sessionId)?.tools.get(id);
   }
 
