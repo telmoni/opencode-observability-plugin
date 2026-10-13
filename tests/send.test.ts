@@ -261,6 +261,22 @@ describe('connecting', () => {
     }
   });
 
+  it('gives nothing where the endpoint is no URL to send to, said once, and never logs it', () => {
+    const home = tempDir();
+    try {
+      const env = { HOME: home.path, XDG_STATE_HOME: join(home.path, 'state') };
+      for (const bad of ['api.telmoni.example', 'ftp://ingest.example', 'https://']) {
+        expect(connect(2, { ...env, TELMONI_API_KEY: 'telmoni_test', TELMONI_ENDPOINT: bad })).toBeUndefined();
+      }
+      const log = readFileSync(join(home.path, 'state', 'telmoni', 'opencode', 'plugin.log'), 'utf8').trim().split('\n');
+      expect(log).toHaveLength(3);
+      for (const line of log) expect(line).toMatch(/opencode 2: endpoint is no http or https URL; nothing is sent$/);
+      expect(log.join('\n')).not.toContain('example');
+    } finally {
+      home.remove();
+    }
+  });
+
   it('gives nothing where the endpoint would carry the key in the clear, and never logs the endpoint or the key', () => {
     const home = tempDir();
     try {

@@ -253,6 +253,20 @@ export interface Connection {
 }
 
 /**
+ * Whether the SDK can send to `endpoint`: an http or https URL with a host.
+ * It passes over one it cannot read, which would then fail every export, and
+ * keep every turn, with nothing in the log to say why.
+ */
+function sendable(endpoint: string): boolean {
+  try {
+    const url = new URL(endpoint);
+    return (url.protocol === 'https:' || url.protocol === 'http:') && url.hostname !== '';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * What a loaded plugin sends with, or nothing, said once in the log, where it
  * has no key or the SDK refuses its endpoint. Read as OpenCode loads the
  * plugin: a key set later takes effect from OpenCode's next start.
@@ -263,6 +277,10 @@ export function connect(major: 1 | 2, env: NodeJS.ProcessEnv = process.env): Con
   if (settings.keyFileProblem !== undefined) log(`key file not used: ${settings.keyFileProblem}`);
   if (settings.apiKey === undefined) {
     log('no key: set TELMONI_API_KEY, or apiKey in telmoni.json beside your OpenCode configuration; nothing is sent until then');
+    return undefined;
+  }
+  if (settings.endpoint !== undefined && !sendable(settings.endpoint)) {
+    log('endpoint is no http or https URL; nothing is sent');
     return undefined;
   }
   const destination: Destination = { endpoint: settings.endpoint, apiKey: settings.apiKey };
