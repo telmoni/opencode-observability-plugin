@@ -1,0 +1,71 @@
+{
+  "events": [
+    {
+      "id": "evt_v2_0501",
+      "type": "session.execution.started",
+      "created": 1791795600000,
+      "data": { "sessionID": "ses_v2_root_0005" }
+    },
+    {
+      "id": "evt_v2_0502",
+      "type": "session.inbox.delivered",
+      "created": 1791795600010,
+      "data": { "sessionID": "ses_v2_root_0005", "inboxID": "msg_v2_u_0501" }
+    },
+    {
+      "id": "evt_v2_0503",
+      "type": "session.step.started",
+      "created": 1791795600120,
+      "data": {
+        "sessionID": "ses_v2_root_0005",
+        "assistantMessageID": "msg_v2_a_0501",
+        "agent": "build",
+        "model": { "id": "gpt-5", "providerID": "openai" },
+        "started": 1791795600100
+      }
+    },
+    {
+      "id": "evt_v2_0504",
+      "type": "session.retry.scheduled",
+      "created": 1791795601000,
+      "data": {
+        "sessionID": "ses_v2_root_0005",
+        "assistantMessageID": "msg_v2_a_0501",
+        "attempt": 1,
+        "at": 1791795603000,
+        "error": { "type": "provider.rate-limit", "message": "…", "status": 429 }
+      }
+    },
+    {
+      "id": "evt_v2_0505",
+      "type": "session.step.started",
+      "created": 1791795603020,
+      "data": {
+        "sessionID": "ses_v2_root_0005",
+        "assistantMessageID": "msg_v2_a_0501",
+        "agent": "build",
+        "model": { "id": "gpt-5", "providerID": "openai" },
+        "started": 1791795603000
+      }
+    },
+    {
+      "id": "evt_v2_0506",
+      "type": "session.step.failed",
+      "created": 1791795605000,
+      "data": {
+        "sessionID": "ses_v2_root_0005",
+        "assistantMessageID": "msg_v2_a_0501",
+        "error": { "type": "provider.rate-limit", "message": "…", "status": 429, "response": { "body": "…" } }
+      }
+    },
+    {
+      "id": "evt_v2_0507",
+      "type": "session.execution.failed",
+      "created": 1791795605010,
+      "data": {
+        "sessionID": "ses_v2_root_0005",
+        "error": { "type": "provider.rate-limit", "message": "…", "status": 429 }
+      }
+    }
+  ]
+}

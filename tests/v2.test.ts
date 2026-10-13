@@ -1,0 +1,253 @@
+import type { ModelCallRecord, RunRecord, StepRecord, ToolCallRecord } from 'telmoni';
+import { describe, expect, it } from 'vitest';
+
+import type { V2Event } from '../src/opencode';
+import { AGENT, runIdOf } from '../src/record';
+import { V2Turns } from '../src/v2';
+import { RECORD_KEYS, type V2Fixture, at, keysOf, v2Fixture } from './helpers';
+
+function replay(fixture: V2Fixture | string | V2Event[]): { sent: RunRecord[]; logged: string[] } {
+  const events = Array.isArray(fixture) ? fixture : (typeof fixture === 'string' ? v2Fixture(fixture) : fixture).events;
+  const sent: RunRecord[] = [];
+  const logged: string[] = [];
+  const turns = new V2Turns({ send: (record) => void sent.push(record), log: (line) => void logged.push(line) });
+  for (const event of events) turns.handle(event);
+  return { sent, logged };
+}
+
+function only(records: RunRecord[]): RunRecord {
+  expect(records).toHaveLength(1);
+  return records[0]!;
+}
+
+const event = (type: string, ms: number, data: Record<string, unknown>): V2Event => ({ type, created: at(ms), data });
+
+const step = (sessionID: string, assistantMessageID: string, ms: number, model = 'claude-sonnet-4-5', providerID = 'anthropic'): V2Event =>
+  event('session.step.started', ms + 20, { sessionID, assistantMessageID, agent: 'build', model: { id: model, providerID }, started: at(ms) });
+
+const tokens = { input: 10, output: 5, reasoning: 0, cache: { read: 0, write: 0 } };
+
+/** One reply of the model, from its request at `ms` to its answer's end 500 ms on. */
+const reply = (sessionID: string, assistantMessageID: string, ms: number): V2Event[] => [
+  step(sessionID, assistantMessageID, ms),
+  event('session.step.streamed', ms + 500, { sessionID, assistantMessageID }),
+  event('session.step.ended', ms + 510, { sessionID, assistantMessageID, finish: 'stop', cost: 0, tokens }),
+];
+
+const subagentCall = (sessionID: string, id: string, child: string, ms: number, until: number): { open: V2Event[]; close: V2Event } => ({
+  open: [
+    event('session.tool.input.started', ms, { sessionID, assistantMessageID: 'msg_root_a', id, name: 'subagent' }),
+    event('session.tool.called', ms + 10, { sessionID, assistantMessageID: 'msg_root_a', id, input: { agent: 'explore', prompt: '…' }, executed: true }),
+    event('session.tool.progress', ms + 20, { sessionID, assistantMessageID: 'msg_root_a', id, metadata: { sessionID: child, status: 'running' } }),
+  ],
+  close: event('session.tool.success', until, {
+    sessionID,
+    assistantMessageID: 'msg_root_a',
+    id,
+    content: [{ type: 'text', text: '…' }],
+    metadata: { sessionID: child, status: 'completed' },
+    executed: true,
+  }),
+});
+
+describe('a turn of OpenCode 2', () => {
+  it('is one run of opencode in the session, named by its prompt, from the execution’s start to its end', () => {
+    const run = only(replay('turn').sent);
+    expect(run.agent).toBe(AGENT);
+    expect(run.sessionId).toBe('ses_v2_root_0001');
+    expect(run.runId).toBe(runIdOf('ses_v2_root_0001', 'msg_v2_u_0001'));
+    expect([run.start, run.end]).toEqual([at(0), at(8_100)]);
+    expect(run.errorType).toBeUndefined();
+    expect(run.cancelled).toBeUndefined();
+  });
+
+  it('has a model call per reply, a retried one once from its first request, and a tool call per tool', () => {
+    const run = only(replay('turn').sent);
+    expect(
+      (run.inside ?? []).map((item) =>
+        item.type === 'model_call'
+          ? [item.model, item.provider, item.start, item.end, item.usage]
+          : [(item as ToolCallRecord).name, item.start, item.end, item.errorType],
+      ),
+    ).toEqual([
+      ['claude-sonnet-4-5', 'anthropic', at(100), at(2_200), { inputTokens: 4_700, outputTokens: 120, cacheReadInputTokens: 3_000, cacheWriteInputTokens: 500 }],
+      ['read', at(2_100), at(2_500), undefined],
+      ['claude-sonnet-4-5', 'anthropic', at(2_700), at(4_100), { inputTokens: 4_600, outputTokens: 60, cacheReadInputTokens: 4_200, cacheWriteInputTokens: 0 }],
+      ['bash', at(4_050), at(6_000), 'ToolError'],
+      ['claude-sonnet-4-5', 'anthropic', at(6_200), at(8_000), { inputTokens: 5_200, outputTokens: 150, cacheReadInputTokens: 4_900, cacheWriteInputTokens: 0 }],
+    ]);
+  });
+
+  it('has the same run id, and the same record, every time it is read', () => {
+    for (const name of ['turn', 'subagent', 'interrupted', 'shutdown', 'failed']) {
+      expect(replay(name).sent).toEqual(replay(name).sent);
+    }
+  });
+
+  it('goes on through OpenCode’s shutdown, the execution resumed at its next start carrying on the same turn', () => {
+    const run = only(replay('shutdown').sent);
+    expect(run.runId).toBe(runIdOf('ses_v2_root_0004', 'msg_v2_u_0401'));
+    expect([run.start, run.end]).toEqual([at(0), at(62_200)]);
+    expect((run.inside ?? []).map((item) => [(item as ModelCallRecord).provider, item.start, item.end])).toEqual([
+      ['gcp.gemini', at(100), at(2_000)],
+      ['gcp.gemini', at(60_100), at(62_000)],
+    ]);
+  });
+
+  it('is recorded from where the plugin came in, where it was loaded while the turn ran, named by its first reply', () => {
+    const run = only(replay([...reply('ses_late', 'msg_late_a', 5_000), event('session.execution.succeeded', 6_000, { sessionID: 'ses_late' })]).sent);
+    expect(run.runId).toBe(runIdOf('ses_late', 'msg_late_a'));
+    expect([run.start, run.end]).toEqual([at(5_000), at(6_000)]);
+  });
+
+  it('counts a compaction’s request to the model as a model call', () => {
+    const run = only(
+      replay([
+        event('session.execution.started', 0, { sessionID: 'ses_cmp' }),
+        event('session.inbox.delivered', 10, { sessionID: 'ses_cmp', inboxID: 'msg_cmp_in' }),
+        event('session.compaction.started', 100, { sessionID: 'ses_cmp', reason: 'manual', recent: '…' }),
+        event('session.compaction.ended', 3_000, {
+          sessionID: 'ses_cmp',
+          reason: 'manual',
+          model: { id: 'claude-haiku-4-5', providerID: 'anthropic' },
+          text: '…',
+          recent: '…',
+          cost: 0.001,
+          tokens: { input: 5_000, output: 400, reasoning: 0, cache: { read: 0, write: 0 } },
+        }),
+        event('session.execution.succeeded', 3_100, { sessionID: 'ses_cmp' }),
+      ]).sent,
+    );
+    expect(run.runId).toBe(runIdOf('ses_cmp', 'msg_cmp_in'));
+    expect(run.inside).toEqual([
+      {
+        type: 'model_call',
+        model: 'claude-haiku-4-5',
+        provider: 'anthropic',
+        start: at(100),
+        end: at(3_000),
+        usage: { inputTokens: 5_000, outputTokens: 400, cacheReadInputTokens: 0, cacheWriteInputTokens: 0 },
+      },
+    ]);
+  });
+});
+
+describe('a subagent in OpenCode 2', () => {
+  it('is a step named by its agent holding its calls, and its own execution is no run of its own', () => {
+    const run = only(replay('subagent').sent);
+    expect(run.runId).toBe(runIdOf('ses_v2_root_0002', 'msg_v2_u_0101'));
+    expect((run.inside ?? []).map((item) => (item.type === 'step' ? item.name : item.type))).toEqual([
+      'model_call',
+      'subagent explore',
+      'model_call',
+    ]);
+    const found = (run.inside ?? []).find((item): item is StepRecord => item.type === 'step')!;
+    expect([found.start, found.end]).toEqual([at(1_050), at(5_300)]);
+    expect((found.calls ?? []).map((call) => [call.type === 'model_call' ? call.model : call.name, call.start, call.end])).toEqual([
+      ['claude-haiku-4-5', at(1_300), at(2_100)],
+      ['grep', at(2_050), at(3_000)],
+      ['claude-haiku-4-5', at(3_200), at(5_000)],
+    ]);
+  });
+
+  it('taken up again by a later call is each call’s step from that call to the next', () => {
+    const first = subagentCall('ses_root', 'call_1', 'ses_kid', 1_000, 3_000);
+    const second = subagentCall('ses_root', 'call_2', 'ses_kid', 4_000, 6_000);
+    const run = only(
+      replay([
+        event('session.execution.started', 0, { sessionID: 'ses_root' }),
+        step('ses_root', 'msg_root_a', 100),
+        ...first.open,
+        event('session.created', 1_030, { sessionID: 'ses_kid', parentID: 'ses_root', agent: 'explore', title: '…' }),
+        ...reply('ses_kid', 'msg_kid_a1', 1_300),
+        first.close,
+        ...second.open,
+        ...reply('ses_kid', 'msg_kid_a2', 4_300),
+        second.close,
+        event('session.step.ended', 6_100, { sessionID: 'ses_root', assistantMessageID: 'msg_root_a', finish: 'stop', cost: 0, tokens }),
+        event('session.execution.succeeded', 6_200, { sessionID: 'ses_root' }),
+      ]).sent,
+    );
+    const steps = (run.inside ?? []).filter((item): item is StepRecord => item.type === 'step');
+    expect(steps.map((each) => (each.calls ?? []).map((call) => call.start))).toEqual([[at(1_300)], [at(4_300)]]);
+  });
+
+  it('still working when the turn that started it ends is recorded as far as it had got, and no further', () => {
+    const call = subagentCall('ses_root', 'call_bg', 'ses_bg', 1_000, 1_100);
+    const { sent } = replay([
+      event('session.execution.started', 0, { sessionID: 'ses_root' }),
+      event('session.inbox.delivered', 5, { sessionID: 'ses_root', inboxID: 'msg_root_u1' }),
+      ...reply('ses_root', 'msg_root_a', 100),
+      ...call.open,
+      event('session.created', 1_030, { sessionID: 'ses_bg', parentID: 'ses_root', agent: 'explore', title: '…' }),
+      call.close,
+      step('ses_bg', 'msg_bg_a1', 1_300),
+      event('session.execution.succeeded', 2_000, { sessionID: 'ses_root' }),
+      event('session.step.streamed', 2_500, { sessionID: 'ses_bg', assistantMessageID: 'msg_bg_a1' }),
+      ...reply('ses_bg', 'msg_bg_a2', 3_000),
+      event('session.execution.started', 10_000, { sessionID: 'ses_root' }),
+      event('session.inbox.delivered', 10_005, { sessionID: 'ses_root', inboxID: 'msg_root_u2' }),
+      ...reply('ses_root', 'msg_root_b', 10_100),
+      event('session.execution.succeeded', 11_000, { sessionID: 'ses_root' }),
+    ]);
+    expect(sent.map((run) => run.runId)).toEqual([runIdOf('ses_root', 'msg_root_u1'), runIdOf('ses_root', 'msg_root_u2')]);
+    const background = (sent[0]!.inside ?? []).find((item): item is StepRecord => item.type === 'step')!;
+    expect((background.calls ?? []).map((call) => [call.start, call.end, call.cancelled])).toEqual([[at(1_300), at(2_000), true]]);
+    expect(sent[1]!.inside).toHaveLength(1);
+  });
+});
+
+describe('an OpenCode 2 turn that did not end well', () => {
+  it('is cancelled where the person interrupted it, its unsettled tools with it', () => {
+    const run = only(replay('interrupted').sent);
+    expect(run.cancelled).toBe(true);
+    expect([run.start, run.end]).toEqual([at(0), at(9_020)]);
+    expect(
+      (run.inside ?? []).map((item) => [item.type === 'model_call' ? item.model : (item as ToolCallRecord).name, item.start, item.end, item.cancelled, item.errorType]),
+    ).toEqual([
+      ['claude-sonnet-4-5', at(100), at(1_200), true, undefined],
+      ['bash', at(1_050), at(9_000), true, undefined],
+      ['read', at(1_100), at(9_020), true, undefined],
+    ]);
+  });
+
+  it('fails with the kind of the execution’s error, never its message, a retried call once', () => {
+    const run = only(replay('failed').sent);
+    expect(run.errorType).toBe('provider.rate-limit');
+    expect(run.inside).toEqual([
+      { type: 'model_call', model: 'gpt-5', provider: 'openai', start: at(100), end: at(5_000), errorType: 'provider.rate-limit' },
+    ]);
+  });
+});
+
+describe('what is no turn in OpenCode 2', () => {
+  it('an execution with nothing of the model’s in it, and a stray event of a turn already ended', () => {
+    const { sent } = replay([
+      event('session.execution.started', 0, { sessionID: 'ses_idle' }),
+      event('session.inbox.delivered', 10, { sessionID: 'ses_idle', inboxID: 'msg_idle_u' }),
+      event('session.shell.started', 20, { sessionID: 'ses_idle', shell: { id: 'sh_1', command: '…' } }),
+      event('session.shell.ended', 900, { sessionID: 'ses_idle', shell: { id: 'sh_1', command: '…' }, output: '…' }),
+      event('session.execution.succeeded', 1_000, { sessionID: 'ses_idle' }),
+      event('session.tool.success', 1_100, { sessionID: 'ses_idle', assistantMessageID: 'msg_x', id: 'call_x', content: [], executed: true }),
+      event('session.execution.failed', 1_200, { sessionID: 'ses_idle', error: { type: 'unknown', message: '…' } }),
+    ]);
+    expect(sent).toEqual([]);
+  });
+
+  it('a malformed event, which is passed over', () => {
+    const fixture = v2Fixture('turn');
+    const noise: V2Event[] = [{}, { type: 'session.execution.started' }, { type: 'session.step.started', data: null }, { type: 'session.execution.started', data: { sessionID: '/work/…' } }];
+    expect(replay([...noise, ...fixture.events]).sent).toEqual(replay(fixture).sent);
+  });
+});
+
+describe('an OpenCode 2 record', () => {
+  it('carries nothing of what was said: no text, no input or output, no title, no path, no error message', () => {
+    const records = ['turn', 'subagent', 'interrupted', 'shutdown', 'failed'].flatMap((name) => replay(name).sent);
+    const json = JSON.stringify(records);
+    expect(json).not.toContain('…');
+    expect(json).not.toContain('/');
+    const keys = keysOf(records);
+    expect(keys.every((key) => RECORD_KEYS.includes(key))).toBe(true);
+  });
+});

@@ -1,0 +1,87 @@
+{
+  "events": [
+    {
+      "id": "evt_v2_0301",
+      "type": "session.execution.started",
+      "created": 1791795600000,
+      "data": { "sessionID": "ses_v2_root_0003" }
+    },
+    {
+      "id": "evt_v2_0302",
+      "type": "session.inbox.delivered",
+      "created": 1791795600010,
+      "data": { "sessionID": "ses_v2_root_0003", "inboxID": "msg_v2_u_0301" }
+    },
+    {
+      "id": "evt_v2_0303",
+      "type": "session.step.started",
+      "created": 1791795600120,
+      "data": {
+        "sessionID": "ses_v2_root_0003",
+        "assistantMessageID": "msg_v2_a_0301",
+        "agent": "build",
+        "model": { "id": "claude-sonnet-4-5", "providerID": "anthropic" },
+        "started": 1791795600100
+      }
+    },
+    {
+      "id": "evt_v2_0304",
+      "type": "session.tool.input.started",
+      "created": 1791795601000,
+      "data": { "sessionID": "ses_v2_root_0003", "assistantMessageID": "msg_v2_a_0301", "id": "call_v2_0301", "name": "bash" }
+    },
+    {
+      "id": "evt_v2_0305",
+      "type": "session.tool.called",
+      "created": 1791795601050,
+      "data": {
+        "sessionID": "ses_v2_root_0003",
+        "assistantMessageID": "msg_v2_a_0301",
+        "id": "call_v2_0301",
+        "input": { "command": "…" },
+        "executed": true
+      }
+    },
+    {
+      "id": "evt_v2_0306",
+      "type": "session.tool.input.started",
+      "created": 1791795601100,
+      "data": { "sessionID": "ses_v2_root_0003", "assistantMessageID": "msg_v2_a_0301", "id": "call_v2_0302", "name": "read" }
+    },
+    {
+      "id": "evt_v2_0307",
+      "type": "session.step.streamed",
+      "created": 1791795601200,
+      "data": { "sessionID": "ses_v2_root_0003", "assistantMessageID": "msg_v2_a_0301" }
+    },
+    {
+      "id": "evt_v2_0308",
+      "type": "session.tool.failed",
+      "created": 1791795609000,
+      "data": {
+        "sessionID": "ses_v2_root_0003",
+        "assistantMessageID": "msg_v2_a_0301",
+        "id": "call_v2_0301",
+        "error": { "type": "aborted", "message": "…" },
+        "metadata": { "output": "…" },
+        "executed": true
+      }
+    },
+    {
+      "id": "evt_v2_0309",
+      "type": "session.step.failed",
+      "created": 1791795609010,
+      "data": {
+        "sessionID": "ses_v2_root_0003",
+        "assistantMessageID": "msg_v2_a_0301",
+        "error": { "type": "aborted", "message": "…" }
+      }
+    },
+    {
+      "id": "evt_v2_0310",
+      "type": "session.execution.interrupted",
+      "created": 1791795609020,
+      "data": { "sessionID": "ses_v2_root_0003", "reason": "user" }
+    }
+  ]
+}

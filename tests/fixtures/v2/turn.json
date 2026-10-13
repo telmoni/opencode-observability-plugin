@@ -1,0 +1,284 @@
+{
+  "events": [
+    {
+      "id": "evt_v2_0001",
+      "type": "session.created",
+      "created": 1791795540000,
+      "location": { "directory": "/work/…" },
+      "durable": { "aggregateID": "ses_v2_root_0001", "seq": 0, "version": 1 },
+      "data": {
+        "sessionID": "ses_v2_root_0001",
+        "projectID": "prj_v2_0001",
+        "location": { "directory": "/work/…" },
+        "slug": "…",
+        "title": "…",
+        "agent": "build",
+        "model": { "id": "claude-sonnet-4-5", "providerID": "anthropic" },
+        "version": "2.0.27"
+      }
+    },
+    {
+      "id": "evt_v2_0002",
+      "type": "session.inbox.enqueued",
+      "created": 1791795599995,
+      "durable": { "aggregateID": "ses_v2_root_0001", "seq": 1, "version": 1 },
+      "data": {
+        "sessionID": "ses_v2_root_0001",
+        "inboxID": "msg_v2_u_0001",
+        "item": { "type": "user", "payload": { "text": "…", "files": [{ "name": "…", "uri": "file:///work/…" }] }, "delivery": "queue" }
+      }
+    },
+    {
+      "id": "evt_v2_0003",
+      "type": "session.execution.started",
+      "created": 1791795600000,
+      "durable": { "aggregateID": "ses_v2_root_0001", "seq": 2, "version": 1 },
+      "data": { "sessionID": "ses_v2_root_0001" }
+    },
+    {
+      "id": "evt_v2_0004",
+      "type": "session.inbox.delivered",
+      "created": 1791795600010,
+      "durable": { "aggregateID": "ses_v2_root_0001", "seq": 3, "version": 1 },
+      "data": { "sessionID": "ses_v2_root_0001", "inboxID": "msg_v2_u_0001" }
+    },
+    {
+      "id": "evt_v2_0005",
+      "type": "session.step.started",
+      "created": 1791795600120,
+      "data": {
+        "sessionID": "ses_v2_root_0001",
+        "assistantMessageID": "msg_v2_a_0001",
+        "agent": "build",
+        "model": { "id": "claude-sonnet-4-5", "providerID": "anthropic" },
+        "snapshot": "…",
+        "started": 1791795600100
+      }
+    },
+    {
+      "id": "evt_v2_0006",
+      "type": "session.reasoning.started",
+      "created": 1791795600600,
+      "data": { "sessionID": "ses_v2_root_0001", "assistantMessageID": "msg_v2_a_0001", "ordinal": 0 }
+    },
+    {
+      "id": "evt_v2_0007",
+      "type": "session.reasoning.delta",
+      "created": 1791795600700,
+      "data": { "sessionID": "ses_v2_root_0001", "assistantMessageID": "msg_v2_a_0001", "ordinal": 0, "delta": "…" }
+    },
+    {
+      "id": "evt_v2_0008",
+      "type": "session.reasoning.ended",
+      "created": 1791795601000,
+      "data": { "sessionID": "ses_v2_root_0001", "assistantMessageID": "msg_v2_a_0001", "ordinal": 0, "text": "…" }
+    },
+    {
+      "id": "evt_v2_0009",
+      "type": "session.text.ended",
+      "created": 1791795601500,
+      "data": { "sessionID": "ses_v2_root_0001", "assistantMessageID": "msg_v2_a_0001", "ordinal": 1, "text": "…" }
+    },
+    {
+      "id": "evt_v2_0010",
+      "type": "session.tool.input.started",
+      "created": 1791795602000,
+      "data": { "sessionID": "ses_v2_root_0001", "assistantMessageID": "msg_v2_a_0001", "id": "call_v2_0001", "name": "read" }
+    },
+    {
+      "id": "evt_v2_0011",
+      "type": "session.tool.input.ended",
+      "created": 1791795602050,
+      "data": { "sessionID": "ses_v2_root_0001", "assistantMessageID": "msg_v2_a_0001", "id": "call_v2_0001", "text": "…" }
+    },
+    {
+      "id": "evt_v2_0012",
+      "type": "session.tool.called",
+      "created": 1791795602100,
+      "data": {
+        "sessionID": "ses_v2_root_0001",
+        "assistantMessageID": "msg_v2_a_0001",
+        "id": "call_v2_0001",
+        "input": { "filePath": "/work/…" },
+        "executed": true
+      }
+    },
+    {
+      "id": "evt_v2_0013",
+      "type": "session.step.streamed",
+      "created": 1791795602200,
+      "data": { "sessionID": "ses_v2_root_0001", "assistantMessageID": "msg_v2_a_0001" }
+    },
+    {
+      "id": "evt_v2_0014",
+      "type": "session.tool.progress",
+      "created": 1791795602300,
+      "data": { "sessionID": "ses_v2_root_0001", "assistantMessageID": "msg_v2_a_0001", "id": "call_v2_0001", "metadata": { "preview": "…" } }
+    },
+    {
+      "id": "evt_v2_0015",
+      "type": "session.tool.success",
+      "created": 1791795602500,
+      "data": {
+        "sessionID": "ses_v2_root_0001",
+        "assistantMessageID": "msg_v2_a_0001",
+        "id": "call_v2_0001",
+        "content": [{ "type": "text", "text": "…" }],
+        "metadata": { "preview": "…" },
+        "executed": true
+      }
+    },
+    {
+      "id": "evt_v2_0016",
+      "type": "session.step.ended",
+      "created": 1791795602600,
+      "data": {
+        "sessionID": "ses_v2_root_0001",
+        "assistantMessageID": "msg_v2_a_0001",
+        "finish": "tool-calls",
+        "cost": 0.01,
+        "tokens": { "input": 1200, "output": 80, "reasoning": 40, "cache": { "read": 3000, "write": 500 } },
+        "snapshot": "…",
+        "files": ["…"]
+      }
+    },
+    {
+      "id": "evt_v2_0017",
+      "type": "session.step.started",
+      "created": 1791795602720,
+      "data": {
+        "sessionID": "ses_v2_root_0001",
+        "assistantMessageID": "msg_v2_a_0002",
+        "agent": "build",
+        "model": { "id": "claude-sonnet-4-5", "providerID": "anthropic" },
+        "started": 1791795602700
+      }
+    },
+    {
+      "id": "evt_v2_0018",
+      "type": "session.retry.scheduled",
+      "created": 1791795603000,
+      "data": {
+        "sessionID": "ses_v2_root_0001",
+        "assistantMessageID": "msg_v2_a_0002",
+        "attempt": 1,
+        "at": 1791795603500,
+        "error": { "type": "provider.rate-limit", "message": "…", "status": 429 }
+      }
+    },
+    {
+      "id": "evt_v2_0019",
+      "type": "session.step.started",
+      "created": 1791795603520,
+      "data": {
+        "sessionID": "ses_v2_root_0001",
+        "assistantMessageID": "msg_v2_a_0002",
+        "agent": "build",
+        "model": { "id": "claude-sonnet-4-5", "providerID": "anthropic" },
+        "started": 1791795603500
+      }
+    },
+    {
+      "id": "evt_v2_0020",
+      "type": "session.tool.input.started",
+      "created": 1791795604000,
+      "data": { "sessionID": "ses_v2_root_0001", "assistantMessageID": "msg_v2_a_0002", "id": "call_v2_0002", "name": "bash" }
+    },
+    {
+      "id": "evt_v2_0021",
+      "type": "session.tool.called",
+      "created": 1791795604050,
+      "data": {
+        "sessionID": "ses_v2_root_0001",
+        "assistantMessageID": "msg_v2_a_0002",
+        "id": "call_v2_0002",
+        "input": { "command": "…", "description": "…" },
+        "executed": true
+      }
+    },
+    {
+      "id": "evt_v2_0022",
+      "type": "session.step.streamed",
+      "created": 1791795604100,
+      "data": { "sessionID": "ses_v2_root_0001", "assistantMessageID": "msg_v2_a_0002" }
+    },
+    {
+      "id": "evt_v2_0023",
+      "type": "session.tool.failed",
+      "created": 1791795606000,
+      "data": {
+        "sessionID": "ses_v2_root_0001",
+        "assistantMessageID": "msg_v2_a_0002",
+        "id": "call_v2_0002",
+        "error": { "type": "tool.execution", "message": "…" },
+        "content": [{ "type": "text", "text": "…" }],
+        "metadata": { "output": "…" },
+        "executed": true
+      }
+    },
+    {
+      "id": "evt_v2_0024",
+      "type": "session.step.ended",
+      "created": 1791795606100,
+      "data": {
+        "sessionID": "ses_v2_root_0001",
+        "assistantMessageID": "msg_v2_a_0002",
+        "finish": "tool-calls",
+        "cost": 0.01,
+        "tokens": { "input": 400, "output": 60, "reasoning": 0, "cache": { "read": 4200, "write": 0 } }
+      }
+    },
+    {
+      "id": "evt_v2_0025",
+      "type": "session.step.started",
+      "created": 1791795606220,
+      "data": {
+        "sessionID": "ses_v2_root_0001",
+        "assistantMessageID": "msg_v2_a_0003",
+        "agent": "build",
+        "model": { "id": "claude-sonnet-4-5", "providerID": "anthropic" },
+        "started": 1791795606200
+      }
+    },
+    {
+      "id": "evt_v2_0026",
+      "type": "session.text.ended",
+      "created": 1791795607900,
+      "data": { "sessionID": "ses_v2_root_0001", "assistantMessageID": "msg_v2_a_0003", "ordinal": 0, "text": "…" }
+    },
+    {
+      "id": "evt_v2_0027",
+      "type": "session.step.streamed",
+      "created": 1791795608000,
+      "data": { "sessionID": "ses_v2_root_0001", "assistantMessageID": "msg_v2_a_0003" }
+    },
+    {
+      "id": "evt_v2_0028",
+      "type": "session.step.ended",
+      "created": 1791795608050,
+      "data": {
+        "sessionID": "ses_v2_root_0001",
+        "assistantMessageID": "msg_v2_a_0003",
+        "finish": "stop",
+        "cost": 0.01,
+        "tokens": { "input": 300, "output": 150, "reasoning": 0, "cache": { "read": 4900, "write": 0 } }
+      }
+    },
+    {
+      "id": "evt_v2_0029",
+      "type": "session.usage.updated",
+      "created": 1791795608060,
+      "data": {
+        "sessionID": "ses_v2_root_0001",
+        "cost": 0.03,
+        "tokens": { "input": 1900, "output": 290, "reasoning": 40, "cache": { "read": 12100, "write": 500 } }
+      }
+    },
+    {
+      "id": "evt_v2_0030",
+      "type": "session.execution.succeeded",
+      "created": 1791795608100,
+      "data": { "sessionID": "ses_v2_root_0001" }
+    }
+  ]
+}

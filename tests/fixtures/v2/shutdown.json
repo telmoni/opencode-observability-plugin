@@ -1,0 +1,100 @@
+{
+  "events": [
+    {
+      "id": "evt_v2_0401",
+      "type": "session.execution.started",
+      "created": 1791795600000,
+      "data": { "sessionID": "ses_v2_root_0004" }
+    },
+    {
+      "id": "evt_v2_0402",
+      "type": "session.inbox.delivered",
+      "created": 1791795600010,
+      "data": { "sessionID": "ses_v2_root_0004", "inboxID": "msg_v2_u_0401" }
+    },
+    {
+      "id": "evt_v2_0403",
+      "type": "session.step.started",
+      "created": 1791795600120,
+      "data": {
+        "sessionID": "ses_v2_root_0004",
+        "assistantMessageID": "msg_v2_a_0401",
+        "agent": "build",
+        "model": { "id": "gemini-2.5-pro", "providerID": "google" },
+        "started": 1791795600100
+      }
+    },
+    {
+      "id": "evt_v2_0404",
+      "type": "session.step.streamed",
+      "created": 1791795602000,
+      "data": { "sessionID": "ses_v2_root_0004", "assistantMessageID": "msg_v2_a_0401" }
+    },
+    {
+      "id": "evt_v2_0405",
+      "type": "session.step.ended",
+      "created": 1791795602100,
+      "data": {
+        "sessionID": "ses_v2_root_0004",
+        "assistantMessageID": "msg_v2_a_0401",
+        "finish": "tool-calls",
+        "cost": 0.01,
+        "tokens": { "input": 800, "output": 100, "reasoning": 0, "cache": { "read": 0, "write": 0 } }
+      }
+    },
+    {
+      "id": "evt_v2_0406",
+      "type": "session.execution.interrupted",
+      "created": 1791795602500,
+      "data": { "sessionID": "ses_v2_root_0004", "reason": "shutdown" }
+    },
+    {
+      "id": "evt_v2_0407",
+      "type": "session.execution.started",
+      "created": 1791795660000,
+      "data": { "sessionID": "ses_v2_root_0004" }
+    },
+    {
+      "id": "evt_v2_0408",
+      "type": "session.inbox.delivered",
+      "created": 1791795660010,
+      "data": { "sessionID": "ses_v2_root_0004", "inboxID": "msg_v2_s_0401" }
+    },
+    {
+      "id": "evt_v2_0409",
+      "type": "session.step.started",
+      "created": 1791795660120,
+      "data": {
+        "sessionID": "ses_v2_root_0004",
+        "assistantMessageID": "msg_v2_a_0402",
+        "agent": "build",
+        "model": { "id": "gemini-2.5-pro", "providerID": "google" },
+        "started": 1791795660100
+      }
+    },
+    {
+      "id": "evt_v2_0410",
+      "type": "session.step.streamed",
+      "created": 1791795662000,
+      "data": { "sessionID": "ses_v2_root_0004", "assistantMessageID": "msg_v2_a_0402" }
+    },
+    {
+      "id": "evt_v2_0411",
+      "type": "session.step.ended",
+      "created": 1791795662100,
+      "data": {
+        "sessionID": "ses_v2_root_0004",
+        "assistantMessageID": "msg_v2_a_0402",
+        "finish": "stop",
+        "cost": 0.01,
+        "tokens": { "input": 900, "output": 200, "reasoning": 50, "cache": { "read": 0, "write": 0 } }
+      }
+    },
+    {
+      "id": "evt_v2_0412",
+      "type": "session.execution.succeeded",
+      "created": 1791795662200,
+      "data": { "sessionID": "ses_v2_root_0004" }
+    }
+  ]
+}
