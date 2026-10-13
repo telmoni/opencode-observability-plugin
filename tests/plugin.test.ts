@@ -12,7 +12,19 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { V1Hooks, V2Cleanup, V2Context } from '../src/opencode';
 import { runIdOf } from '../src/record';
 import { SHUTDOWN_WAIT_MS } from '../src/send';
-import { FakeIngest, T0, attributesOf, fakeClient, fakeContext, shifted, tempDir, until, v1Fixture, v2Fixture } from './helpers';
+import {
+  FakeIngest,
+  T0,
+  type V1Fixture,
+  attributesOf,
+  fakeClient,
+  fakeContext,
+  shifted,
+  tempDir,
+  until,
+  v1Fixture,
+  v2Fixture,
+} from './helpers';
 
 const PLUGIN = fileURLToPath(new URL('../dist/index.mjs', import.meta.url));
 
@@ -87,11 +99,18 @@ const logPath = (): string => join(home.path, 'state', 'telmoni', 'opencode', 'p
 /** The fixture's times moved to now, as if it were happening as the test runs. */
 const now = <T>(fixture: T): T => shifted(fixture, Date.now() - T0);
 
+/**
+ * An OpenCode 1 fixture moved to now in place, once the plugin is loaded and
+ * just before its events are replayed: the plugin reads a session's going
+ * busy by its own clock, and a slow first import must not age the turn.
+ */
+const happening = (fixture: V1Fixture): void => void Object.assign(fixture, now(fixture));
+
 const runs = (): number => ingest.spans().filter((span) => span.name === 'invoke_agent opencode').length;
 
 describe('the plugin, as OpenCode 1 loads it', () => {
   it('is called as a server plugin, and sends each turn through the SDK to ingest', async () => {
-    const fixture = now(v1Fixture('turn'));
+    const fixture = v1Fixture('turn');
     const hooks = await asOpenCode1({
       client: fakeClient(fixture),
       project: { id: 'prj_v1_0001', worktree: '/work/…' },
@@ -100,6 +119,7 @@ describe('the plugin, as OpenCode 1 loads it', () => {
       serverUrl: new URL('http://localhost:4096'),
       $: undefined,
     });
+    happening(fixture);
     for (const event of fixture.events) await hooks.event!({ event });
     expect(await until(() => runs() === 1, 10_000)).toBe(true);
     const spans = ingest.spans();
@@ -173,11 +193,12 @@ describe('the plugin, either way', () => {
 
   it('never throws into OpenCode and never waits on Telmoni but as it shuts down, however slow it answers or whatever it is handed', async () => {
     ingest.delayMs = 2_000;
-    const v1 = now(v1Fixture('turn'));
+    const v1 = v1Fixture('turn');
     const hooks = await asOpenCode1({ client: fakeClient(v1) });
     for (const input of [undefined, null, 42, 'event', { event: null }, { event: { type: 'session.status', properties: 'busy' } }]) {
       await expect(hooks.event!(input as never)).resolves.toBeUndefined();
     }
+    happening(v1);
     let slowest = 0;
     for (const event of v1.events) {
       const started = performance.now();
