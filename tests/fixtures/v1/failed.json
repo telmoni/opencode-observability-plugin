@@ -1,0 +1,182 @@
+{
+  "events": [
+    {
+      "id": "evt_v1_0501",
+      "type": "session.status",
+      "properties": { "sessionID": "ses_v1_root_0004", "status": { "type": "busy" } }
+    },
+    {
+      "id": "evt_v1_0502",
+      "type": "message.updated",
+      "properties": {
+        "sessionID": "ses_v1_root_0004",
+        "info": {
+          "id": "msg_v1_a_0501",
+          "sessionID": "ses_v1_root_0004",
+          "role": "assistant",
+          "time": { "created": 1791795600100 },
+          "parentID": "msg_v1_u_0501",
+          "modelID": "gpt-5",
+          "providerID": "openai",
+          "mode": "build",
+          "agent": "build",
+          "path": { "cwd": "/work/…", "root": "/work/…" },
+          "cost": 0,
+          "tokens": { "input": 0, "output": 0, "reasoning": 0, "cache": { "read": 0, "write": 0 } }
+        }
+      }
+    },
+    {
+      "id": "evt_v1_0503",
+      "type": "message.updated",
+      "properties": {
+        "sessionID": "ses_v1_root_0004",
+        "info": {
+          "id": "msg_v1_a_0502",
+          "sessionID": "ses_v1_root_0004",
+          "role": "assistant",
+          "time": { "created": 1791795603100 },
+          "parentID": "msg_v1_u_0501",
+          "modelID": "gpt-5",
+          "providerID": "openai",
+          "mode": "build",
+          "agent": "build",
+          "path": { "cwd": "/work/…", "root": "/work/…" },
+          "cost": 0,
+          "tokens": { "input": 0, "output": 0, "reasoning": 0, "cache": { "read": 0, "write": 0 } }
+        }
+      }
+    },
+    {
+      "id": "evt_v1_0504",
+      "type": "session.error",
+      "properties": {
+        "sessionID": "ses_v1_root_0004",
+        "error": { "name": "APIError", "data": { "message": "…", "statusCode": 429, "isRetryable": true, "responseBody": "…" } }
+      }
+    },
+    {
+      "id": "evt_v1_0505",
+      "type": "session.status",
+      "properties": { "sessionID": "ses_v1_root_0004", "status": { "type": "idle" } }
+    },
+    {
+      "id": "evt_v1_0506",
+      "type": "session.idle",
+      "properties": { "sessionID": "ses_v1_root_0004" }
+    }
+  ],
+  "sessions": {
+    "ses_v1_root_0004": {
+      "info": {
+        "id": "ses_v1_root_0004",
+        "slug": "…",
+        "projectID": "prj_v1_0001",
+        "directory": "/work/…",
+        "title": "…",
+        "version": "1.19.0",
+        "time": { "created": 1791795540000, "updated": 1791795609000 }
+      },
+      "messages": [
+        {
+          "info": {
+            "id": "msg_v1_u_0501",
+            "sessionID": "ses_v1_root_0004",
+            "role": "user",
+            "time": { "created": 1791795600000 },
+            "agent": "build",
+            "model": { "providerID": "openai", "modelID": "gpt-5" }
+          },
+          "parts": [
+            { "id": "prt_v1_0501", "sessionID": "ses_v1_root_0004", "messageID": "msg_v1_u_0501", "type": "text", "text": "…" }
+          ]
+        },
+        {
+          "info": {
+            "id": "msg_v1_a_0501",
+            "sessionID": "ses_v1_root_0004",
+            "role": "assistant",
+            "time": { "created": 1791795600100, "completed": 1791795603000 },
+            "parentID": "msg_v1_u_0501",
+            "modelID": "gpt-5",
+            "providerID": "openai",
+            "mode": "build",
+            "agent": "build",
+            "path": { "cwd": "/work/…", "root": "/work/…" },
+            "cost": 0.01,
+            "tokens": { "input": 1000, "output": 30, "reasoning": 0, "cache": { "read": 0, "write": 200 } },
+            "finish": "tool-calls"
+          },
+          "parts": [
+            { "id": "prt_v1_0502", "sessionID": "ses_v1_root_0004", "messageID": "msg_v1_a_0501", "type": "step-start" },
+            {
+              "id": "prt_v1_0503",
+              "sessionID": "ses_v1_root_0004",
+              "messageID": "msg_v1_a_0501",
+              "type": "tool",
+              "callID": "call_v1_0501",
+              "tool": "read",
+              "state": {
+                "status": "completed",
+                "input": { "filePath": "/work/…" },
+                "output": "…",
+                "title": "…",
+                "metadata": { "preview": "…" },
+                "time": { "start": 1791795601000, "end": 1791795601500 }
+              }
+            },
+            {
+              "id": "prt_v1_0504",
+              "sessionID": "ses_v1_root_0004",
+              "messageID": "msg_v1_a_0501",
+              "type": "step-finish",
+              "reason": "tool-calls",
+              "cost": 0.01,
+              "tokens": { "input": 1000, "output": 30, "reasoning": 0, "cache": { "read": 0, "write": 200 } }
+            }
+          ]
+        },
+        {
+          "info": {
+            "id": "msg_v1_a_0502",
+            "sessionID": "ses_v1_root_0004",
+            "role": "assistant",
+            "time": { "created": 1791795603100, "completed": 1791795609000 },
+            "error": {
+              "name": "APIError",
+              "data": { "message": "…", "statusCode": 429, "isRetryable": true, "responseBody": "…", "metadata": { "url": "https://…" } }
+            },
+            "parentID": "msg_v1_u_0501",
+            "modelID": "gpt-5",
+            "providerID": "openai",
+            "mode": "build",
+            "agent": "build",
+            "path": { "cwd": "/work/…", "root": "/work/…" },
+            "cost": 0,
+            "tokens": { "input": 0, "output": 0, "reasoning": 0, "cache": { "read": 0, "write": 0 } }
+          },
+          "parts": [
+            {
+              "id": "prt_v1_0505",
+              "sessionID": "ses_v1_root_0004",
+              "messageID": "msg_v1_a_0502",
+              "type": "retry",
+              "attempt": 1,
+              "error": { "name": "APIError", "data": { "message": "…", "statusCode": 429, "isRetryable": true } },
+              "time": { "created": 1791795605000 }
+            },
+            {
+              "id": "prt_v1_0506",
+              "sessionID": "ses_v1_root_0004",
+              "messageID": "msg_v1_a_0502",
+              "type": "retry",
+              "attempt": 2,
+              "error": { "name": "APIError", "data": { "message": "…", "statusCode": 429, "isRetryable": true } },
+              "time": { "created": 1791795607000 }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,156 @@
+{
+  "events": [
+    {
+      "id": "evt_v1_0401",
+      "type": "session.status",
+      "properties": { "sessionID": "ses_v1_root_0003", "status": { "type": "busy" } }
+    },
+    {
+      "id": "evt_v1_0402",
+      "type": "message.updated",
+      "properties": {
+        "sessionID": "ses_v1_root_0003",
+        "info": {
+          "id": "msg_v1_a_0401",
+          "sessionID": "ses_v1_root_0003",
+          "role": "assistant",
+          "time": { "created": 1791795600200 },
+          "parentID": "msg_v1_u_0401",
+          "modelID": "claude-sonnet-4-5",
+          "providerID": "anthropic",
+          "mode": "build",
+          "agent": "build",
+          "path": { "cwd": "/work/…", "root": "/work/…" },
+          "cost": 0,
+          "tokens": { "input": 0, "output": 0, "reasoning": 0, "cache": { "read": 0, "write": 0 } }
+        }
+      }
+    },
+    {
+      "id": "evt_v1_0403",
+      "type": "message.updated",
+      "properties": {
+        "sessionID": "ses_v1_root_0003",
+        "info": {
+          "id": "msg_v1_a_0401",
+          "sessionID": "ses_v1_root_0003",
+          "role": "assistant",
+          "time": { "created": 1791795600200, "completed": 1791795609000 },
+          "error": { "name": "MessageAbortedError", "data": { "message": "…" } },
+          "parentID": "msg_v1_u_0401",
+          "modelID": "claude-sonnet-4-5",
+          "providerID": "anthropic",
+          "mode": "build",
+          "agent": "build",
+          "path": { "cwd": "/work/…", "root": "/work/…" },
+          "cost": 0,
+          "tokens": { "input": 0, "output": 0, "reasoning": 0, "cache": { "read": 0, "write": 0 } }
+        }
+      }
+    },
+    {
+      "id": "evt_v1_0404",
+      "type": "session.error",
+      "properties": {
+        "sessionID": "ses_v1_root_0003",
+        "error": { "name": "MessageAbortedError", "data": { "message": "…" } }
+      }
+    },
+    {
+      "id": "evt_v1_0405",
+      "type": "session.status",
+      "properties": { "sessionID": "ses_v1_root_0003", "status": { "type": "idle" } }
+    },
+    {
+      "id": "evt_v1_0406",
+      "type": "session.idle",
+      "properties": { "sessionID": "ses_v1_root_0003" }
+    }
+  ],
+  "sessions": {
+    "ses_v1_root_0003": {
+      "info": {
+        "id": "ses_v1_root_0003",
+        "slug": "…",
+        "projectID": "prj_v1_0001",
+        "directory": "/work/…",
+        "title": "…",
+        "version": "1.19.0",
+        "time": { "created": 1791795540000, "updated": 1791795609000 }
+      },
+      "messages": [
+        {
+          "info": {
+            "id": "msg_v1_u_0401",
+            "sessionID": "ses_v1_root_0003",
+            "role": "user",
+            "time": { "created": 1791795600000 },
+            "agent": "build",
+            "model": { "providerID": "anthropic", "modelID": "claude-sonnet-4-5" }
+          },
+          "parts": [
+            { "id": "prt_v1_0401", "sessionID": "ses_v1_root_0003", "messageID": "msg_v1_u_0401", "type": "text", "text": "…" }
+          ]
+        },
+        {
+          "info": {
+            "id": "msg_v1_a_0401",
+            "sessionID": "ses_v1_root_0003",
+            "role": "assistant",
+            "time": { "created": 1791795600200, "completed": 1791795609000 },
+            "error": { "name": "MessageAbortedError", "data": { "message": "…" } },
+            "parentID": "msg_v1_u_0401",
+            "modelID": "claude-sonnet-4-5",
+            "providerID": "anthropic",
+            "mode": "build",
+            "agent": "build",
+            "path": { "cwd": "/work/…", "root": "/work/…" },
+            "cost": 0,
+            "tokens": { "input": 0, "output": 0, "reasoning": 0, "cache": { "read": 0, "write": 0 } }
+          },
+          "parts": [
+            { "id": "prt_v1_0402", "sessionID": "ses_v1_root_0003", "messageID": "msg_v1_a_0401", "type": "step-start" },
+            {
+              "id": "prt_v1_0403",
+              "sessionID": "ses_v1_root_0003",
+              "messageID": "msg_v1_a_0401",
+              "type": "text",
+              "text": "…",
+              "time": { "start": 1791795600600, "end": 1791795601000 }
+            },
+            {
+              "id": "prt_v1_0404",
+              "sessionID": "ses_v1_root_0003",
+              "messageID": "msg_v1_a_0401",
+              "type": "tool",
+              "callID": "call_v1_0401",
+              "tool": "bash",
+              "state": {
+                "status": "error",
+                "input": { "command": "…", "description": "…" },
+                "error": "…",
+                "metadata": { "interrupted": true, "output": "…" },
+                "time": { "start": 1791795601500, "end": 1791795609000 }
+              }
+            },
+            {
+              "id": "prt_v1_0405",
+              "sessionID": "ses_v1_root_0003",
+              "messageID": "msg_v1_a_0401",
+              "type": "tool",
+              "callID": "call_v1_0402",
+              "tool": "glob",
+              "state": {
+                "status": "running",
+                "input": { "pattern": "…" },
+                "title": "…",
+                "metadata": {},
+                "time": { "start": 1791795601600 }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
