@@ -449,6 +449,11 @@ async function follow(
  * the plugin, and as its server shuts down.
  */
 export async function setup(context: V2Context): Promise<V2Cleanup | undefined> {
+  // OpenCode 1.19 sets a definition up too, through a host of its own with
+  // no event stream, after calling `server`, whose turns they are: here,
+  // with nothing to follow, the plugin keeps out, and says nothing.
+  const events = context?.event;
+  if (typeof events?.subscribe !== 'function') return undefined;
   let connection: ReturnType<typeof connect>;
   try {
     connection = connect(2);
@@ -457,11 +462,6 @@ export async function setup(context: V2Context): Promise<V2Cleanup | undefined> 
     return undefined;
   }
   if (connection === undefined) return undefined;
-  const events = context?.event;
-  if (typeof events?.subscribe !== 'function') {
-    connection.log("OpenCode's event stream not found; nothing is sent");
-    return undefined;
-  }
   const { outbox, log } = connection;
   const turns = new V2Turns({ send: (record) => outbox.send(record), log });
   const stop = new AbortController();

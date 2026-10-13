@@ -138,6 +138,22 @@ describe('the plugin, as OpenCode 1 loads it', () => {
     await hooks.dispose!();
     expect(existsSync(logPath())).toBe(false);
   });
+
+  it('is set up as a definition too, as OpenCode 1.19 does through its own host, and stays out of it there', async () => {
+    const fixture = v1Fixture('turn');
+    const hooks = await asOpenCode1({ client: fakeClient(fixture) });
+    // What OpenCode 1.19.0 hands `setup`, seen live: no event stream among it.
+    const host = Object.fromEntries(
+      ['agent', 'aisdk', 'catalog', 'command', 'integration', 'options', 'plugin', 'reference', 'skill'].map((key) => [key, {}]),
+    );
+    expect(await asOpenCode2(host)).toBeUndefined();
+    happening(fixture);
+    for (const event of fixture.events) await hooks.event!({ event });
+    expect(await until(() => runs() === 1, 10_000)).toBe(true);
+    await hooks.dispose!();
+    expect(runs()).toBe(1);
+    expect(existsSync(logPath())).toBe(false);
+  });
 });
 
 describe('the plugin, as OpenCode 2 loads it', () => {
