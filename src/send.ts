@@ -10,7 +10,7 @@
  */
 
 import { Telmoni } from 'telmoni';
-import type { RunRecord } from 'telmoni';
+import type { CallRecord, RunRecord, StepRecord } from 'telmoni';
 
 import { kindOf, log as writeLog } from './log.js';
 import { settingsFrom } from './settings.js';
@@ -20,6 +20,40 @@ const FLUSH_SECONDS = 45;
 
 /** How many turns the platform has not taken are kept to send again: the newest. */
 const KEEP = 200;
+
+/**
+ * The most spans the SDK's queue holds for one client. Past it the rest are
+ * dropped, the run's own among them, since it ends last, and the run would
+ * never end in Telmoni.
+ */
+const MAX_SPANS = 2_048;
+
+/**
+ * `record` with as many of its calls as the SDK will send, the earliest —
+ * the run and its start take two places — and how many were left out.
+ */
+export function fitted(record: RunRecord, max: number = MAX_SPANS): { record: RunRecord; left: number } {
+  let room = max - 2;
+  let left = 0;
+  const inside: Array<StepRecord | CallRecord> = [];
+  for (const item of record.inside ?? []) {
+    const calls = item.type === 'step' ? (item.calls ?? []) : [];
+    if (room <= 0) {
+      left += 1 + calls.length;
+      continue;
+    }
+    room -= 1;
+    if (item.type !== 'step') {
+      inside.push(item);
+      continue;
+    }
+    const kept = calls.slice(0, room);
+    room -= kept.length;
+    left += calls.length - kept.length;
+    inside.push(kept.length === calls.length ? item : { ...item, calls: kept });
+  }
+  return left === 0 ? { record, left } : { record: { ...record, inside }, left };
+}
 
 /**
  * The most OpenCode is held, as it shuts down, for the turns still to send:
@@ -66,7 +100,9 @@ export class Sender {
    * would hold back every turn after it. A record the SDK refuses is done
    * for the same reason.
    */
-  async send(record: RunRecord): Promise<boolean> {
+  async send(whole: RunRecord): Promise<boolean> {
+    const { record, left } = fitted(whole);
+    if (left > 0) this.#log(`turn cut to the ${MAX_SPANS - 2} calls the SDK sends of it, the earliest; ${left} left out`);
     try {
       this.#telmoni.recordRun(record);
     } catch (error) {

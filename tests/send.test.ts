@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { RunRecord } from 'telmoni';
+import type { RunRecord, StepRecord, ToolCallRecord } from 'telmoni';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { Outbox, Sender, connect } from '../src/send';
+import { Outbox, Sender, connect, fitted } from '../src/send';
 import { FakeIngest, at, attributesOf, tempDir } from './helpers';
 
 let ingest: FakeIngest;
@@ -73,6 +73,33 @@ describe('a sender', () => {
     await sender.send({ ...turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'), end: at(-1) });
     expect(ingest.received).toEqual([]);
     expect(logged).toEqual(['turn refused by the SDK: RangeError']);
+  });
+
+  it('cuts a turn larger than the SDK queues to its earliest calls, its run kept, and says so', async () => {
+    const calls = Array.from({ length: 3_000 }, (_, index): ToolCallRecord => ({ type: 'tool_call', name: 'glob', start: at(index), end: at(index + 1) }));
+    const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+    expect(await sender.send({ ...turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'), inside: calls })).toBe(true);
+    const spans = ingest.spans();
+    expect(spans).toHaveLength(2_048);
+    expect(spans.filter((span) => span.name === 'invoke_agent opencode')).toHaveLength(1);
+    expect(logged).toEqual(['turn cut to the 2046 calls the SDK sends of it, the earliest; 954 left out']);
+  });
+});
+
+describe('a turn fitted to the SDK', () => {
+  const call = (index: number): ToolCallRecord => ({ type: 'tool_call', name: 'glob', start: at(index), end: at(index + 1) });
+  const run = (inside: RunRecord['inside']): RunRecord => ({ ...turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'), inside });
+
+  it('is the turn itself where it fits', () => {
+    const whole = run([call(0), { type: 'step', name: 'subagent explore', start: at(1), end: at(5), calls: [call(2), call(3)] }]);
+    expect(fitted(whole, 6)).toEqual({ record: whole, left: 0 });
+  });
+
+  it('keeps its earliest calls, a step cut to the calls of it that fit', () => {
+    const step: StepRecord = { type: 'step', name: 'subagent explore', start: at(1), end: at(9), calls: [call(2), call(3), call(4)] };
+    const { record, left } = fitted(run([call(0), step, call(10)]), 6);
+    expect(record.inside).toEqual([call(0), { ...step, calls: [call(2), call(3)] }]);
+    expect(left).toBe(2);
   });
 });
 
