@@ -18,9 +18,9 @@ export function stringOf(value: unknown): string | undefined {
   return typeof value === 'string' && value !== '' ? value : undefined;
 }
 
-/** A time in milliseconds since the epoch, or nothing. */
+/** A time in milliseconds since the epoch, or nothing: ingest reads zero as no time at all. */
 export function timeOf(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
 /** An id OpenCode gave a session, message or call: plain, never a path. */
