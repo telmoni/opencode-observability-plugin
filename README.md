@@ -34,7 +34,7 @@ or:
 opencode plugin add telmoni-opencode-observability-plugin
 ```
 
-Name it under one key, never both: OpenCode 2 reads an OpenCode 1 `plugin` list too, and would load the plugin twice.
+One key is enough: OpenCode 2 reads an OpenCode 1 `plugin` list too, and sets the plugin up once even where it is named under both.
 
 ## Configure
 
@@ -68,7 +68,7 @@ A turn is sent as it ends, in the background, and a turn sent twice is stored on
 
 ## When something is wrong
 
-The plugin never slows or interrupts OpenCode: nothing it does while OpenCode works waits on the network, and as OpenCode shuts down it waits three seconds at most for the turns still to send. Anything that went wrong is a line in `~/.local/state/telmoni/opencode/plugin.log` (under `XDG_STATE_HOME` where you set one), naming what kind of thing went wrong and never anything from your session. A turn Telmoni could not take is sent again as the next turn ends, while OpenCode runs. A turn still running when OpenCode quits is not recorded, and one running when it reloads its plugins is recorded from the reload on.
+The plugin never slows or interrupts OpenCode: nothing it does while OpenCode works waits on the network, and as OpenCode shuts down it waits three seconds at most for the turns still to send. Anything that went wrong is a line in `~/.local/state/telmoni/opencode/plugin.log` (under `XDG_STATE_HOME` where you set one), naming what kind of thing went wrong and never anything from your session. A turn that could not reach Telmoni is sent again as the next turn ends, while OpenCode runs; one Telmoni answered and refused is not, and the log says what it answered. A turn still running when OpenCode quits is not recorded, and one running when it reloads its plugins is recorded from the reload on; on OpenCode 2, a subagent at work then may show as a run of its own.
 
 ## Uninstall
 
