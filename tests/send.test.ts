@@ -64,7 +64,7 @@ describe('a sender', () => {
     const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
     await sender.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
     expect(logged).toHaveLength(1);
-    expect(logged[0]).toMatch(/^not sent: .*403/);
+    expect(logged[0]).toMatch(/^Telmoni did not take all of the turn: .*403/);
     expect(logged[0]).not.toContain('telmoni_test');
   });
 
@@ -86,28 +86,112 @@ describe('the outbox', () => {
   const runIdsSent = (): unknown[] =>
     ingest.spans().filter((span) => span.name === 'invoke_agent opencode').map((span) => attributesOf(span)['telmoni.run_id']);
 
-  it('keeps a turn the platform did not take, and sends it again, oldest first, as the next turn ends', async () => {
+  it('keeps a turn the SDK gave up sending, and sends it again, oldest first, as the next turn ends', async () => {
     const box = outbox();
-    ingest.status = 403;
+    ingest.status = 503;
     box.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
     await box.flush();
     expect(box.waiting).toBe(1);
+    expect(logged).toEqual([expect.stringMatching(/^ses_send_000: not sent; kept to send again: telmoni: export failed after 3 attempts \(503/)]);
     ingest.status = 200;
     box.send(turn('4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e'));
     await box.flush();
     expect(box.waiting).toBe(0);
     expect(runIdsSent()).toEqual([
-      '3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d',
+      ...Array<string>(3).fill('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'),
       '3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d',
       '4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e',
     ]);
-    // The refused copy and the one taken are the same bytes, which ingest answers once.
-    expect(ingest.received[0]!.body).toBe(ingest.received[1]!.body);
+    // Every copy is the same bytes, which ingest stores once.
+    expect(new Set(ingest.received.slice(0, 4).map((request) => request.body)).size).toBe(1);
+    expect(ingest.stored).toBe(2);
+  });
+
+  it(
+    'keeps a turn while Telmoni is down, and sends it once it is back, stored once',
+    async () => {
+      const port = Number(new URL(endpoint).port);
+      await ingest.stop();
+      const box = outbox();
+      box.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
+      await box.flush();
+      expect(box.waiting).toBe(1);
+      expect(logged).toEqual([expect.stringMatching(/kept to send again: telmoni: export failed after 3 attempts \(TypeError\)/)]);
+      ingest = new FakeIngest();
+      await ingest.start(port);
+      box.send(turn('4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e'));
+      await box.flush();
+      expect(box.waiting).toBe(0);
+      expect(runIdsSent()).toEqual(['3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d', '4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e']);
+      expect(ingest.stored).toBe(2);
+    },
+    20_000,
+  );
+
+  it('passes over a turn Telmoni answered and refused, holding back none after it', async () => {
+    const box = outbox();
+    ingest.status = 403;
+    box.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
+    await box.flush();
+    expect(box.waiting).toBe(0);
+    ingest.status = 400;
+    box.send(turn('4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e'));
+    await box.flush();
+    expect(box.waiting).toBe(0);
+    ingest.status = 200;
+    box.send(turn('5f8a0c3e-7d4a-4b9c-9e2f-0a3b4c5d6e7f'));
+    await box.flush();
+    // Each sent once: a refusal is the same whenever it is asked again.
+    expect(runIdsSent()).toEqual([
+      '3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d',
+      '4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e',
+      '5f8a0c3e-7d4a-4b9c-9e2f-0a3b4c5d6e7f',
+    ]);
+    expect(logged).toEqual([
+      'ses_send_000: Telmoni did not take all of the turn: telmoni: export refused with 403 /errors/authz/forbidden; the batch was dropped',
+      'ses_send_000: Telmoni did not take all of the turn: telmoni: export refused with 400 /errors/authz/forbidden; the batch was dropped',
+    ]);
+  });
+
+  it('passes over a turn Telmoni took but for a span, which it would answer the same way for the hour', async () => {
+    const box = outbox();
+    ingest.partial = 'span 5b8aa5a2d2c872e8 refused: name over its cap';
+    box.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
+    await box.flush();
+    expect(box.waiting).toBe(0);
+    ingest.partial = undefined;
+    box.send(turn('4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e'));
+    await box.flush();
+    expect(runIdsSent()).toEqual(['3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d', '4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e']);
+    expect(logged).toEqual(['ses_send_000: Telmoni did not take all of the turn: telmoni: the server refused a span: name over its cap']);
+  });
+
+  it('asks a Telmoni that does not answer once a round, about its oldest turn, not once a turn', async () => {
+    const box = outbox();
+    ingest.status = 503;
+    box.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
+    await box.flush();
+    box.send(turn('4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e'));
+    await box.flush();
+    expect(box.waiting).toBe(2);
+    // Two rounds, each the SDK's three attempts at the oldest turn alone.
+    expect(runIdsSent()).toEqual(Array<string>(6).fill('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
+  });
+
+  it('sends one turn at a time, however many end together', async () => {
+    const box = outbox();
+    ingest.delayMs = 100;
+    box.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
+    box.send(turn('4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e'));
+    box.send(turn('5f8a0c3e-7d4a-4b9c-9e2f-0a3b4c5d6e7f'));
+    await box.flush();
+    expect(runIdsSent()).toHaveLength(3);
+    expect(ingest.busiest).toBe(1);
   });
 
   it('keeps the newest turns past its bound, and says how many it dropped', async () => {
     const box = outbox(2);
-    ingest.status = 403;
+    ingest.status = 503;
     box.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
     box.send(turn('4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e'));
     box.send(turn('5f8a0c3e-7d4a-4b9c-9e2f-0a3b4c5d6e7f'));

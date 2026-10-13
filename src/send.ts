@@ -1,7 +1,7 @@
 /**
  * Sends each finished turn through the TypeScript SDK, one export each, from
  * a client of its own, whose warnings are then that turn's alone: a turn the
- * platform did not take is kept, and sent again before the next one. The
+ * SDK could not deliver is kept, and sent again before the next one. The
  * same record sent again is the same bytes, which ingest answers once.
  *
  * Every send goes through one chain, so two turns ending together never send
@@ -33,6 +33,15 @@ export interface Destination {
   apiKey: string;
 }
 
+/**
+ * How the SDK words an export it gave up on after its own retries — a
+ * connection that failed or timed out, a `429` or a `503` — the one failure
+ * that sending the same bytes later may mend. Every other warning is an
+ * answer: a refusal, or a span refused or a field dropped from an export
+ * that was taken, which ingest gives again for the hour to the same bytes.
+ */
+const GAVE_UP = 'telmoni: export failed after ';
+
 /** One turn's send, through a client made for it and shut down after. */
 export class Sender {
   readonly #telmoni: Telmoni;
@@ -50,11 +59,12 @@ export class Sender {
   }
 
   /**
-   * Whether the platform took the turn. The SDK warns of every export it
-   * could not deliver and every span refused, so a turn counts as taken when
-   * its flush settles with no warning. A record the SDK refuses counts as
-   * done: it would be refused however often it came, and must not hold up
-   * the turns after it.
+   * Whether the turn is done with: false only where it is worth sending
+   * again, its export unfinished in time or given up on by the SDK. A turn
+   * the platform answered is done, taken or not: a refusal, whole or of a
+   * span, would come back however often it was sent, and a turn kept for it
+   * would hold back every turn after it. A record the SDK refuses is done
+   * for the same reason.
    */
   async send(record: RunRecord): Promise<boolean> {
     try {
@@ -64,9 +74,17 @@ export class Sender {
       return true;
     }
     const flushed = await this.#telmoni.flush(FLUSH_SECONDS);
-    if (flushed && this.#warnings.length === 0) return true;
-    this.#log(flushed ? `not sent: ${this.#warnings.join('; ')}` : 'not sent: the export did not finish in time');
-    return false;
+    const warnings = this.#warnings.join('; ');
+    if (!flushed) {
+      this.#log('not sent in time; kept to send again');
+      return false;
+    }
+    if (this.#warnings.some((warning) => warning.startsWith(GAVE_UP))) {
+      this.#log(`not sent; kept to send again: ${warnings}`);
+      return false;
+    }
+    if (this.#warnings.length > 0) this.#log(`Telmoni did not take all of the turn: ${warnings}`);
+    return true;
   }
 
   close(): Promise<void> {
@@ -110,7 +128,7 @@ async function within(ms: number, work: Promise<unknown>): Promise<void> {
 /**
  * The turns waiting to be sent, oldest first, and the one chain they are
  * sent through. A turn that ends starts a round: every turn waiting is sent
- * in order, and a turn the platform did not take ends the round, kept with
+ * in order, and a turn the SDK could not deliver ends the round, kept with
  * those after it for the next — a Telmoni that does not answer is asked once
  * a round, not once a turn.
  */

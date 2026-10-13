@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { type Server, createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -168,31 +169,53 @@ export interface Received {
 /**
  * Ingest as the SDK meets it: an OTLP/JSON lane that keeps what it is sent,
  * and answers `status`, `delayMs` late — never, at `Infinity`, until
- * `release` is called.
+ * `release` is called. A `200` carries `partial`, a partial success's
+ * message, where it is set; a `429` or `503` asks to be tried again at once.
+ * A body is stored the first time it is answered `200`, as ingest's claim
+ * on a body answers its copies.
  */
 export class FakeIngest {
   readonly received: Received[] = [];
   status = 200;
+  partial: string | undefined;
   delayMs = 0;
   answered = 0;
+  /** The most requests it was ever answering at once. */
+  busiest = 0;
+  readonly #stored = new Set<string>();
   readonly #held = new Set<() => void>();
+  #open = 0;
   #server: Server | undefined;
 
-  async start(): Promise<string> {
+  /** How many different bodies it stored. */
+  get stored(): number {
+    return this.#stored.size;
+  }
+
+  async start(port = 0): Promise<string> {
     this.#server = createServer((request, response) => {
+      this.#open += 1;
+      this.busiest = Math.max(this.busiest, this.#open);
       const chunks: Buffer[] = [];
       request.on('data', (chunk: Buffer) => chunks.push(chunk));
       request.on('end', () => {
-        this.received.push({ url: request.url ?? '', headers: request.headers, body: Buffer.concat(chunks).toString('utf8') });
+        const body = Buffer.concat(chunks).toString('utf8');
+        this.received.push({ url: request.url ?? '', headers: request.headers, body });
         const status = this.status;
+        const partial = this.partial;
         const answer = (): void => {
           if (status === 200) {
+            this.#stored.add(createHash('sha256').update(body).digest('hex'));
             response.writeHead(200, { 'Content-Type': 'application/json', 'Telmoni-Content-Mode': 'off' });
-            response.end(JSON.stringify({ partialSuccess: null }));
+            response.end(JSON.stringify({ partialSuccess: partial === undefined ? null : { rejectedSpans: 1, errorMessage: partial } }));
+          } else if (status === 429 || status === 503) {
+            response.writeHead(status, { 'Content-Type': 'application/json', 'Retry-After': '0' });
+            response.end(JSON.stringify({ code: 14, message: '/errors/telemetry/store-unavailable: the span store is not taking rows; retry in a second' }));
           } else {
             response.writeHead(status, { 'Content-Type': 'application/json' });
             response.end(JSON.stringify({ code: 7, message: '/errors/authz/forbidden: this API key does not hold the ingest scope' }));
           }
+          this.#open -= 1;
           this.answered += 1;
         };
         if (this.delayMs <= 0) {
@@ -208,7 +231,7 @@ export class FakeIngest {
         this.#held.add(release);
       });
     });
-    await new Promise<void>((resolve) => this.#server!.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve) => this.#server!.listen(port, '127.0.0.1', resolve));
     return `http://127.0.0.1:${(this.#server!.address() as AddressInfo).port}`;
   }
 
