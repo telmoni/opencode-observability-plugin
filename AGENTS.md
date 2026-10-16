@@ -25,7 +25,7 @@ The OpenCode plugin for Telmoni ([`telmoni/opencode-observability-plugin`](https
 
 ## Commands
 - **After every change** (no permission needed; report failures verbatim): `make check` — the types, the bundle and the suites (`npm run verify`). The suites need `../telmoni/sdk/typescript` built (`npm run build` there).
-- **Locally:** an OpenCode whose `plugin` list (OpenCode 1) or `plugins` list (OpenCode 2) names this checkout's `dist/index.mjs` by its absolute path loads the plugin last built; `TELMONI_API_KEY` and `TELMONI_ENDPOINT` reach it from the environment OpenCode starts in.
+- **Locally:** an OpenCode 1 whose `plugin` list names this checkout's `dist/index.mjs` by its absolute path, or an OpenCode 2 whose `plugins` list names its `dist` folder (it refuses a file there), loads the plugin last built; `TELMONI_API_KEY` and `TELMONI_ENDPOINT` reach it from the environment OpenCode starts in.
 
 ## Code Rules
 - TypeScript on Node 22, bundled by tsup into the one ESM file `dist/index.mjs` with the SDK inside it. OpenCode 1 runs plugins in Bun and OpenCode 2 in Bun or Node: plain Node APIs only, never Bun's. Nothing built is committed.
