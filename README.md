@@ -40,7 +40,7 @@ One key is enough: OpenCode 2 reads an OpenCode 1 `plugin` list too, and sets th
 
 ### From a checkout
 
-Build the plugin beside a checkout of [`telmoni/telmoni`](https://github.com/telmoni/telmoni), whose TypeScript SDK it is built on; building needs Node.js 22 or later and npm:
+Build the plugin beside a checkout of [`telmoni/telmoni`](https://github.com/telmoni/telmoni), whose TypeScript SDK it is built on; building needs Node.js 22.18, 24.11, or 26 or later and npm:
 
 ```sh
 git clone https://github.com/telmoni/telmoni.git
