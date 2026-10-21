@@ -4,48 +4,44 @@ Records each turn of your [OpenCode](https://opencode.ai) sessions in [Telmoni](
 
 ## Install
 
-The plugin is not on npm yet, so the install below waits for its package; until then, run it [from a checkout](#from-a-checkout).
-
-You need OpenCode 1.18.29 or later, or OpenCode 2. OpenCode installs the plugin itself: the npm package `telmoni-opencode-observability-plugin`, its built file alone.
+You need OpenCode 1.18.29 or later, or OpenCode 2. OpenCode installs the plugin itself: the npm package [`@telmoni/opencode-observability-plugin`](https://www.npmjs.com/package/@telmoni/opencode-observability-plugin), its built file alone.
 
 On OpenCode 1, name it in the `plugin` list of your `opencode.json` — the global one, `~/.config/opencode/opencode.json`, or a project's:
 
 ```json
 {
-  "plugin": ["telmoni-opencode-observability-plugin"]
+  "plugin": ["@telmoni/opencode-observability-plugin"]
 }
 ```
 
 or have OpenCode add it to the global one:
 
 ```sh
-opencode plugin telmoni-opencode-observability-plugin -g
+opencode plugin @telmoni/opencode-observability-plugin -g
 ```
 
 On OpenCode 2, the list is `plugins`:
 
 ```json
 {
-  "plugins": ["telmoni-opencode-observability-plugin"]
+  "plugins": ["@telmoni/opencode-observability-plugin"]
 }
 ```
 
 or:
 
 ```sh
-opencode plugin add telmoni-opencode-observability-plugin
+opencode plugin add @telmoni/opencode-observability-plugin
 ```
 
 One key is enough: OpenCode 2 reads an OpenCode 1 `plugin` list too, and sets the plugin up once even where it is named under both.
 
 ### From a checkout
 
-Build the plugin beside a checkout of [`telmoni/telmoni`](https://github.com/telmoni/telmoni), whose TypeScript SDK it is built on; building needs Node.js 22.18, 24.11, or 26 or later and npm:
+Building needs Node.js 22.18, 24.11, or 26 or later and npm:
 
 ```sh
-git clone https://github.com/telmoni/telmoni.git
 git clone https://github.com/telmoni/opencode-observability-plugin.git
-(cd telmoni/sdk/typescript && npm install && npm run build)
 (cd opencode-observability-plugin && npm install && npm run build)
 ```
 
@@ -87,7 +83,7 @@ The plugin never slows or interrupts OpenCode: nothing it does while OpenCode wo
 
 ## Uninstall
 
-Take `telmoni-opencode-observability-plugin` out of `plugin` or `plugins` (`opencode plugin remove telmoni-opencode-observability-plugin` on OpenCode 2), then delete `~/.config/opencode/telmoni.json` and `~/.local/state/telmoni/opencode/`.
+Take `@telmoni/opencode-observability-plugin` out of `plugin` or `plugins` (`opencode plugin remove @telmoni/opencode-observability-plugin` on OpenCode 2), then delete `~/.config/opencode/telmoni.json` and `~/.local/state/telmoni/opencode/`.
 
 ## License
 

@@ -1,5 +1,4 @@
-# CI: the plugin's gate, `make check`, on the TypeScript SDK it bundles, built from the
-# platform's main beside it, as `package.json` links it (`file:../telmoni/sdk/typescript`).
+# CI: the plugin's gate, `make check`, on the registry's TypeScript SDK, which it bundles.
 name: CI
 
 on:
@@ -19,34 +18,15 @@ jobs:
     name: check (types, bundle, suites)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: opencode-observability-plugin
     steps:
       - uses: actions/checkout@v7
         with:
-          path: opencode-observability-plugin
-          persist-credentials: false
-
-      - uses: actions/checkout@v7
-        with:
-          repository: telmoni/telmoni
-          path: telmoni
           persist-credentials: false
 
       - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            opencode-observability-plugin/package-lock.json
-            telmoni/sdk/typescript/package-lock.json
-
-      - name: Build the SDK
-        working-directory: telmoni/sdk/typescript
-        run: |
-          npm ci
-          npm run build
 
       - run: npm ci
 

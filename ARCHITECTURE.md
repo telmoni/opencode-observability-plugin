@@ -85,9 +85,9 @@ Ingest refuses a span whose name passes 128 characters, and a model call's is `c
 
 ## What ships
 
-The npm package `telmoni-opencode-observability-plugin` holds `dist/index.mjs` — tsup's one bundle of the plugin, the SDK and OpenTelemetry — beside `package.json`, `README.md` and `LICENSE`, which npm always adds; `main` and `exports` (`.` and `./server`) name the bundle, where each major looks. OpenCode installs the package itself, under `~/.cache/opencode/`, and runs none of its scripts; nothing is installed beside it. OpenCode 1 runs plugins in Bun (1.19.0 is built with Bun 1.3.14, and the plugin's stack frames, seen live, are Bun's) and OpenCode 2 in Bun or Node, so the plugin uses plain Node APIs. It names no `engines.opencode`, which OpenCode 1 alone checks, and against which it would skip the plugin on a prerelease build; 1.18.29, the first release documented to load a plugin's default object, is the README's floor.
+The npm package `@telmoni/opencode-observability-plugin` holds `dist/index.mjs` — tsup's one bundle of the plugin, the SDK and OpenTelemetry — beside `package.json`, `README.md` and `LICENSE`, which npm always adds; `main` and `exports` (`.` and `./server`) name the bundle, where each major looks. OpenCode installs the package itself, under `~/.cache/opencode/`, and runs none of its scripts; nothing is installed beside it. OpenCode 1 runs plugins in Bun (1.19.0 is built with Bun 1.3.14, and the plugin's stack frames, seen live, are Bun's) and OpenCode 2 in Bun or Node, so the plugin uses plain Node APIs. It names no `engines.opencode`, which OpenCode 1 alone checks, and against which it would skip the plugin on a prerelease build; 1.18.29, the first release documented to load a plugin's default object, is the README's floor.
 
-Until the SDKs are published, the SDK is a development dependency by path (`file:../telmoni/sdk/typescript`), bundled at build; publishing this package waits on theirs, and the dependency becomes the registry's `telmoni` in the same change.
+The SDK is a development dependency, the registry's `telmoni`, bundled at build.
 
 ## Testing
 

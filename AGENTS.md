@@ -1,6 +1,6 @@
 # Telmoni for OpenCode — Agent Guidelines
 
-The OpenCode plugin for Telmoni ([`telmoni/opencode-observability-plugin`](https://github.com/telmoni/opencode-observability-plugin)): a plugin OpenCode runs in its own process, which records each turn of a person's OpenCode sessions as a run, metadata only, through the TypeScript SDK of the platform ([`telmoni/telmoni`](https://github.com/telmoni/telmoni), `sdk/typescript`). It reaches a person's machine as the npm package `telmoni-opencode-observability-plugin` alone, which OpenCode installs itself from its configuration; one default export serves OpenCode 1 and OpenCode 2. The repository is public, and every file in it is published as written.
+The OpenCode plugin for Telmoni ([`telmoni/opencode-observability-plugin`](https://github.com/telmoni/opencode-observability-plugin)): a plugin OpenCode runs in its own process, which records each turn of a person's OpenCode sessions as a run, metadata only, through the TypeScript SDK of the platform ([`telmoni/telmoni`](https://github.com/telmoni/telmoni), `sdk/typescript`). It reaches a person's machine as the npm package `@telmoni/opencode-observability-plugin` alone, which OpenCode installs itself from its configuration; one default export serves OpenCode 1 and OpenCode 2. The repository is public, and every file in it is published as written.
 
 ## Ground Rules
 - **Pre-launch:** nothing has shipped. Change the record and the package to their ideal state; no migration paths.
@@ -20,12 +20,11 @@ The OpenCode plugin for Telmoni ([`telmoni/opencode-observability-plugin`](https
 | `src/send.ts`, `src/settings.ts`, `src/log.ts`, `src/opencode.ts` | Sending through the SDK; the key, endpoint and folders; `plugin.log`; the shapes of OpenCode's the plugin reads, defined here with their guards. |
 | `tests/` | The suites; `tests/fixtures/` holds synthetic sessions written from OpenCode's own shapes. |
 | `ARCHITECTURE.md` | How the plugin works, and why. |
-| [`telmoni/telmoni`](https://github.com/telmoni/telmoni) | Sibling repo, checked out as `../telmoni`: the SDK this plugin is built on (`sdk/typescript`, `recordRun`), linked by path until the SDKs are published. |
+| [`telmoni/telmoni`](https://github.com/telmoni/telmoni) | Sibling repo, checked out as `../telmoni`: the SDK this plugin is built on (`sdk/typescript`, `recordRun`), which it takes from npm as `telmoni`. |
 | [`telmoni/docs`](https://github.com/telmoni/docs) | Sibling repo, checked out as `../docs`: the book, whose `api/coding-agents.mdx` documents this plugin. |
 
 ## Commands
-- **After every change** (no permission needed; report failures verbatim): `make check` — the types, the bundle and the suites (`npm run verify`). The suites need `../telmoni/sdk/typescript` built (`npm run build` there).
-- **Locally:** an OpenCode 1 whose `plugin` list names this checkout's `dist/index.mjs` by its absolute path, or an OpenCode 2 whose `plugins` list names its `dist` folder (it refuses a file there), loads the plugin last built; `TELMONI_API_KEY` and `TELMONI_ENDPOINT` reach it from the environment OpenCode starts in.
+- **After every change** (no permission needed; report failures verbatim): `make check` — the types, the bundle and the suites (`npm run verify`).- **Locally:** an OpenCode 1 whose `plugin` list names this checkout's `dist/index.mjs` by its absolute path, or an OpenCode 2 whose `plugins` list names its `dist` folder (it refuses a file there), loads the plugin last built; `TELMONI_API_KEY` and `TELMONI_ENDPOINT` reach it from the environment OpenCode starts in.
 
 ## Code Rules
 - TypeScript on Node 22, bundled by tsup into the one ESM file `dist/index.mjs` with the SDK inside it. OpenCode 1 runs plugins in Bun and OpenCode 2 in Bun or Node: plain Node APIs only, never Bun's. Nothing built is committed.
