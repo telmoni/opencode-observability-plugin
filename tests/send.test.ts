@@ -143,7 +143,7 @@ describe('the outbox', () => {
       box.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
       await box.flush();
       expect(box.waiting).toBe(1);
-      expect(logged).toEqual([expect.stringMatching(/kept to send again: telmoni: export failed after 3 attempts \(TypeError\)/)]);
+      expect(logged).toEqual([expect.stringMatching(/kept to send again: telmoni: export failed after 3 attempts \(Error\)/)]);
       ingest = new FakeIngest();
       await ingest.start(port);
       box.send(turn('4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e'));
