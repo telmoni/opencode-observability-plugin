@@ -1,0 +1,92 @@
+# CI: the plugin's gate, `make check`, on the TypeScript SDK it bundles, built from the
+# platform's main beside it, as `package.json` links it (`file:../telmoni/sdk/typescript`).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check (types, bundle, suites)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: opencode-observability-plugin
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: opencode-observability-plugin
+          persist-credentials: false
+
+      - uses: actions/checkout@v7
+        with:
+          repository: telmoni/telmoni
+          path: telmoni
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            opencode-observability-plugin/package-lock.json
+            telmoni/sdk/typescript/package-lock.json
+
+      - name: Build the SDK
+        working-directory: telmoni/sdk/typescript
+        run: |
+          npm ci
+          npm run build
+
+      - run: npm ci
+
+      - name: Run the gate
+        run: make check
+
+  lint-workflows:
+    name: lint workflows (actionlint)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          tarball="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o "$tarball" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${tarball}"
+          echo "${ACTIONLINT_SHA256}  ${tarball}" | sha256sum --check --status
+          tar -xzf "$tarball" actionlint
+
+      - name: actionlint
+        run: ./actionlint -color
+
+  # The one required check. Nothing above carries an `if:`, so a skipped job never ran, and
+  # only `success` passes.
+  ci-status:
+    name: CI status
+    if: always()
+    needs: [check, lint-workflows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify every job passed
+        env:
+          NEEDS: ${{ toJson(needs) }}
+        run: jq --exit-status 'all(.result == "success")' <<< "$NEEDS"

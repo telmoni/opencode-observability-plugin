@@ -1,0 +1,4 @@
+# actionlint configuration for GitHub Actions workflows.
+# Read by the `lint-workflows` job in ci.yml.
+self-hosted-runner:
+  labels: []
