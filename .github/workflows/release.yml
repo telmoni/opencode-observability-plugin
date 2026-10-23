@@ -1,0 +1,338 @@
+# Releases the plugin from a commit on main that CI has passed. A release is its
+# version bumped in one commit, and nothing else by hand: the package goes to
+# npm, staged, and the commit gets its tag `v*` and a GitHub release.
+#
+# A push to main starts it, as the core's SDK release does. `plan` reads the
+# version from every file that holds it and asks npm and GitHub for it, and only
+# what is still missing runs, so every other push ends green with nothing done;
+# a version still to publish first waits for CI to pass on the same commit, the
+# one the release builds.
+#
+# The two jobs that tag and stage run in the `release` environment, whose
+# reviewer is the owner; they start together, so one approval sends both. npm
+# trusts this file in that environment and mints the job a token of its own
+# (trusted publishing), so no secret is stored anywhere; it only stages the
+# package, live once the owner approves it on npmjs.com with a second factor no
+# workflow holds. The build runs where nothing can publish, restoring no cache,
+# and the publishing job runs none of the repository's code. Every action is
+# pinned to a commit: a tag moved under this file would change what runs where
+# publishing is possible.
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  PACKAGE: "@telmoni/opencode-observability-plugin"
+
+jobs:
+  plan:
+    name: What the version still needs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read # CI's run on this commit
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      build: ${{ steps.plan.outputs.build }}
+      tag: ${{ steps.plan.outputs.tag }}
+      npm: ${{ steps.plan.outputs.npm }}
+      release: ${{ steps.plan.outputs.release }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read the version, and ask npm and GitHub for it
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/version" "$PACKAGE" <<'PY'
+          import json, re, sys
+
+          def load(path):
+              with open(path, encoding="utf-8") as f:
+                  return json.load(f)
+
+          package = load("package.json")
+          if package["name"] != sys.argv[2]:
+              sys.exit(f"::error::package.json names {package['name']}, not {sys.argv[2]}")
+          lock = load("package-lock.json")
+          found = {
+              "package.json": package["version"],
+              "package-lock.json": lock["version"],
+              "package-lock.json, its root package": lock["packages"][""]["version"],
+          }
+          if len(set(found.values())) != 1:
+              for path, version in found.items():
+                  print(f"::error::{path} says {version}")
+              sys.exit("::error::the plugin's versions disagree")
+          version = package["version"]
+          if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
+              sys.exit(f"::error::{version} is not a plain X.Y.Z")
+          with open(sys.argv[1], "w", encoding="utf-8") as f:
+              f.write(version)
+          PY
+          version="$(cat "$RUNNER_TEMP/version")"
+
+          # 200 is there and 404 is not; any other answer stops the run rather
+          # than guess.
+          code="$(curl -sS -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/$PACKAGE/$version")"
+          case "$code" in
+            200) npm=false ;;
+            404) npm=true ;;
+            *) echo "::error::npm answered $code"; exit 1 ;;
+          esac
+
+          release=true
+          if gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then release=false; fi
+
+          # The commit the tag names, if there is one.
+          named=""
+          if object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$version" --jq '.object.type + " " + .object.sha' 2>/dev/null)"; then
+            named="${object##* }"
+            if [ "${object%% *}" = tag ]; then
+              named="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$named" --jq .object.sha)"
+            fi
+          fi
+          tag=true
+          if [ -n "$named" ]; then tag=false; fi
+
+          # npm shows a staged version to nobody until the owner approves it, so
+          # it still lacks one this workflow staged; the GitHub release, cut only
+          # once both jobs passed, says that run is done.
+          staged=false
+          if [ "$npm" = true ] && [ "$release" = false ]; then
+            npm=false
+            staged=true
+            echo "::notice::npm holds $version staged until you approve it on npmjs.com, in the package's Staged Packages tab"
+          fi
+
+          # On npm with no tag here, the version went up by hand: nothing here
+          # knows its commit, so it waits for the next.
+          if [ "$npm" = false ] && [ -z "$named" ] && [ "$release" = true ]; then
+            echo "::notice::$PACKAGE $version is on npm but not tagged here: bump the version to release from CI"
+            release=false
+            tag=false
+          fi
+
+          build=false
+          if [ "$npm" = true ]; then build=true; fi
+          # A tag on another commit while npm still lacks the version is that
+          # commit's release, half done. A re-run keeps the workflow file it ran
+          # with, so this run finishes it when the sources are the same at both
+          # commits; else it stops.
+          if [ -n "$named" ] && [ "$named" != "$SHA" ] && [ "$build" = true ]; then
+            git fetch --quiet --no-tags --depth=1 origin "$named"
+            if ! git diff --quiet "$named" "$SHA" -- . ':(exclude).github'; then
+              echo "::error::v$version is tagged at ${named:0:12} and not yet on npm, which this commit finishes only with the same sources: re-run that commit's release, or bump the version"
+              exit 1
+            fi
+            echo "::notice::v$version is tagged at ${named:0:12}, whose sources this commit holds unchanged: this run finishes its release"
+          fi
+
+          {
+            echo "version=$version"
+            echo "build=$build"
+            echo "tag=$tag"
+            echo "npm=$npm"
+            echo "release=$release"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### $PACKAGE at $version"
+            echo
+            echo "| Still to do | |"
+            echo "|---|---|"
+            echo "| The tag \`v$version\` | $tag |"
+            echo "| npm | $npm$( [ "$staged" = true ] && echo ', staged: approve it on npmjs.com') |"
+            echo "| The GitHub release | $release |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # CI starts beside this run, from the same push, and a run it cancels or
+      # fails stops this one: the next push's run, or a re-run, releases.
+      - name: Wait for CI to pass on this commit
+        if: steps.plan.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          run=""
+          for _ in $(seq 1 30); do
+            run="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --branch main --event push --commit "$SHA" --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+            [ -n "$run" ] && break
+            sleep 10
+          done
+          if [ -z "$run" ]; then
+            echo "::error::CI has no run on ${SHA:0:12}"
+            exit 1
+          fi
+          if ! gh run watch "$run" --repo "$GITHUB_REPOSITORY" --exit-status --interval 30 >/dev/null; then
+            echo "::error::CI did not pass on ${SHA:0:12}: re-run this release once it has, or push again"
+            exit 1
+          fi
+
+  build:
+    name: Build the package
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No cache restored here: what a release builds comes from the commit and
+      # the registry alone.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.23.4
+          package-manager-cache: false
+
+      - name: Verified as CI does, and packed
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run verify
+          npm pack --pack-destination "$RUNNER_TEMP"
+          test -f "$RUNNER_TEMP/telmoni-opencode-observability-plugin-$VERSION.tgz"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: npm
+          path: ${{ runner.temp }}/telmoni-opencode-observability-plugin-${{ needs.plan.outputs.version }}.tgz
+          if-no-files-found: error
+
+  tag:
+    name: Tag v${{ needs.plan.outputs.version }}
+    needs: [plan, build]
+    # After the build, beside the staging job, so one approval covers both.
+    if: >-
+      !cancelled() && needs.plan.outputs.tag == 'true' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment:
+      name: release
+      url: https://github.com/${{ github.repository }}/tree/v${{ needs.plan.outputs.version }}
+    permissions:
+      contents: write # the tag
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      SHA: ${{ github.sha }}
+    steps:
+      - name: Tag the commit
+        run: |
+          set -euo pipefail
+          tag="v$VERSION"
+          if object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq '.object.type + " " + .object.sha' 2>/dev/null)"; then
+            named="${object##* }"
+            if [ "${object%% *}" = tag ]; then
+              named="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$named" --jq .object.sha)"
+            fi
+            if [ "$named" != "$SHA" ]; then
+              echo "::error::$tag already names ${named:0:12}"
+              exit 1
+            fi
+            echo "$tag is in place"
+          else
+            object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags" -f tag="$tag" -f message="$PACKAGE $VERSION" -f object="$SHA" -f type=commit --jq .sha)"
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$tag" -f sha="$object" --silent
+            echo "$tag tags ${SHA:0:12}"
+          fi
+
+  npm:
+    name: npm, staged
+    needs: [plan, build]
+    if: needs.plan.outputs.npm == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: release
+      url: https://www.npmjs.com/package/${{ env.PACKAGE }}/v/${{ needs.plan.outputs.version }}
+    permissions:
+      id-token: write # npm's token, minted for this job, and the provenance
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      # A re-run after a stage that went through still finds nothing: npm
+      # shows a staged version to nobody.
+      - name: Has npm the version?
+        id: has
+        run: |
+          set -euo pipefail
+          code="$(curl -sS -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/$PACKAGE/$VERSION")"
+          case "$code" in
+            200) has=true ;;
+            404) has=false ;;
+            *) echo "::error::npm answered $code"; exit 1 ;;
+          esac
+          echo "has=$has" >> "$GITHUB_OUTPUT"
+
+      - if: steps.has.outputs.has == 'false'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: npm
+          path: npm
+
+      # Node 24's npm, 11.15 or later, stages by trusted publishing and attaches
+      # the provenance.
+      - if: steps.has.outputs.has == 'false'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.1
+          package-manager-cache: false
+
+      # Staged alone: npm's trusted publisher allows nothing more, and the
+      # version goes live when the owner approves it there. The `./` makes it a
+      # file, where `npm/…` alone names a GitHub repository.
+      - name: Stage the tarball the build packed
+        if: steps.has.outputs.has == 'false'
+        run: npm stage publish "./npm/telmoni-opencode-observability-plugin-$VERSION.tgz" --provenance --access public --ignore-scripts
+
+  release:
+    name: The GitHub release
+    needs: [plan, tag, npm]
+    if: >-
+      !cancelled() && needs.plan.outputs.release == 'true' &&
+      !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write # the GitHub release
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Cut the release, its notes the commits since the last
+        run: |
+          set -euo pipefail
+          previous="$(git describe --tags --abbrev=0 --match 'v[0-9]*' "v$VERSION^" 2>/dev/null || true)"
+          if [ -n "$previous" ]; then
+            notes="$(git log --format='- %s' "$previous..v$VERSION")"
+          else
+            notes="The first release from CI."
+          fi
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --verify-tag --title "v$VERSION" --notes "$notes"
