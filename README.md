@@ -38,7 +38,7 @@ One key is enough: OpenCode 2 reads an OpenCode 1 `plugin` list too, and sets th
 
 ### From a checkout
 
-Building needs Node.js 22.18, 24.11, or 26 or later and npm:
+Building needs Node.js 22.23.4, 24.22.1, 26.12.1 or later and npm:
 
 ```sh
 git clone https://github.com/telmoni/opencode-observability-plugin.git
