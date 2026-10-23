@@ -274,8 +274,10 @@ async function turnOf(
       message.info['parentID'] === prompt &&
       createdOf(message)! < firstCreated,
   );
-  const anchor = prompt !== undefined && !taken ? prompt : String(first.info['id']);
-  const user = messages.find((message) => message.info['id'] === prompt && message.info['role'] === 'user');
+  const own = prompt !== undefined && !taken;
+  const anchor = own ? prompt : String(first.info['id']);
+  // Only the turn's own prompt opens it: one an earlier turn answered opened that turn.
+  const user = own ? messages.find((message) => message.info['id'] === prompt && message.info['role'] === 'user') : undefined;
   const opened = user === undefined ? undefined : createdOf(user);
   const until = Math.max(...turn.map((message) => completedOf(message) ?? createdOf(message)!));
   const items = await callsIn(answered, 0, until, readSession);

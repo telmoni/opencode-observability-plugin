@@ -1,10 +1,10 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { RunRecord, StepRecord, ToolCallRecord } from 'telmoni';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { Outbox, Sender, connect, fitted } from '../src/send';
+import { Outbox, Sender, connect, flushSecondsOf } from '../src/send';
 import { FakeIngest, at, attributesOf, tempDir } from './helpers';
 
 let ingest: FakeIngest;
@@ -75,31 +75,30 @@ describe('a sender', () => {
     expect(logged).toEqual(['turn refused by the SDK: RangeError']);
   });
 
-  it('cuts a turn larger than the SDK queues to its earliest calls, its run kept, and says so', async () => {
+  it('sends a turn whole, past the 2,048 spans the SDK queues by default', async () => {
     const calls = Array.from({ length: 3_000 }, (_, index): ToolCallRecord => ({ type: 'tool_call', name: 'glob', start: at(index), end: at(index + 1) }));
     const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
     expect(await sender.send({ ...turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'), inside: calls })).toBe(true);
     const spans = ingest.spans();
-    expect(spans).toHaveLength(2_048);
+    expect(spans).toHaveLength(3_002);
     expect(spans.filter((span) => span.name === 'invoke_agent opencode')).toHaveLength(1);
-    expect(logged).toEqual(['turn cut to the 2046 calls the SDK sends of it, the earliest; 954 left out']);
+    expect(spans.filter((span) => span.name === 'execute_tool glob')).toHaveLength(3_000);
+    expect(logged).toEqual([]);
   });
 });
 
-describe('a turn fitted to the SDK', () => {
-  const call = (index: number): ToolCallRecord => ({ type: 'tool_call', name: 'glob', start: at(index), end: at(index + 1) });
+describe('a turn’s flush', () => {
+  const calls = (count: number): ToolCallRecord[] =>
+    Array.from({ length: count }, (_, index) => ({ type: 'tool_call', name: 'glob', start: at(index), end: at(index + 1) }));
   const run = (inside: RunRecord['inside']): RunRecord => ({ ...turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'), inside });
 
-  it('is the turn itself where it fits', () => {
-    const whole = run([call(0), { type: 'step', name: 'subagent explore', start: at(1), end: at(5), calls: [call(2), call(3)] }]);
-    expect(fitted(whole, 6)).toEqual({ record: whole, left: 0 });
-  });
-
-  it('keeps its earliest calls, a step cut to the calls of it that fit', () => {
-    const step: StepRecord = { type: 'step', name: 'subagent explore', start: at(1), end: at(9), calls: [call(2), call(3), call(4)] };
-    const { record, left } = fitted(run([call(0), step, call(10)]), 6);
-    expect(record.inside).toEqual([call(0), { ...step, calls: [call(2), call(3)] }]);
-    expect(left).toBe(2);
+  it('waits out the SDK’s worst case for each export of 512 spans, and half a minute more', () => {
+    expect(flushSecondsOf(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'))).toBe(180);
+    expect(flushSecondsOf(run(calls(510)))).toBe(180);
+    expect(flushSecondsOf(run(calls(511)))).toBe(330);
+    const step = (count: number): StepRecord => ({ type: 'step', name: 'subagent explore', start: at(0), end: at(count), calls: calls(count) });
+    expect(flushSecondsOf(run([step(1_021)]))).toBe(330);
+    expect(flushSecondsOf(run([step(1_022)]))).toBe(480);
   });
 });
 
@@ -282,31 +281,37 @@ describe('connecting', () => {
     }
   });
 
-  it('gives nothing where the endpoint is no URL to send to, said once, and never logs it', () => {
+  it('takes an endpoint without its scheme as the SDK reads one, and sends to it', async () => {
     const home = tempDir();
     try {
-      const env = { HOME: home.path, XDG_STATE_HOME: join(home.path, 'state') };
-      for (const bad of ['api.telmoni.example', 'ftp://ingest.example', 'https://']) {
-        expect(connect(2, { ...env, TELMONI_API_KEY: 'telmoni_test', TELMONI_ENDPOINT: bad })).toBeUndefined();
-      }
-      const log = readFileSync(join(home.path, 'state', 'telmoni', 'opencode', 'plugin.log'), 'utf8').trim().split('\n');
-      expect(log).toHaveLength(3);
-      for (const line of log) expect(line).toMatch(/opencode 2: endpoint is no http or https URL; nothing is sent$/);
-      expect(log.join('\n')).not.toContain('example');
+      const env = { HOME: home.path, XDG_STATE_HOME: join(home.path, 'state'), TELMONI_API_KEY: 'telmoni_test' };
+      expect(connect(2, { ...env, TELMONI_ENDPOINT: 'api.telmoni.example' })?.outbox).toBeInstanceOf(Outbox);
+      const connection = connect(1, { ...env, TELMONI_ENDPOINT: endpoint.replace('http://', '') });
+      connection?.outbox.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
+      await connection?.outbox.flush();
+      expect(ingest.received).toHaveLength(1);
+      expect(existsSync(join(home.path, 'state', 'telmoni', 'opencode', 'plugin.log'))).toBe(false);
     } finally {
       home.remove();
     }
   });
 
-  it('gives nothing where the endpoint would carry the key in the clear, and never logs the endpoint or the key', () => {
+  it('gives nothing where the SDK refuses the endpoint, and logs the SDK’s reason, which names no path, key or password', () => {
     const home = tempDir();
     try {
-      const env = { HOME: home.path, XDG_STATE_HOME: join(home.path, 'state') };
-      expect(connect(1, { ...env, TELMONI_API_KEY: 'telmoni_test', TELMONI_ENDPOINT: 'http://ingest.example' })).toBeUndefined();
-      const log = readFileSync(join(home.path, 'state', 'telmoni', 'opencode', 'plugin.log'), 'utf8');
-      expect(log).toMatch(/opencode 1: endpoint refused by the SDK: TypeError; nothing is sent/);
-      expect(log).not.toContain('ingest.example');
-      expect(log).not.toContain('telmoni_test');
+      const env = { HOME: home.path, XDG_STATE_HOME: join(home.path, 'state'), TELMONI_API_KEY: 'telmoni_test' };
+      for (const bad of ['ftp://ingest.example/private', 'https://', 'https://someone:hunter2@ingest.example/private', 'http://ingest.example/private']) {
+        expect(connect(2, { ...env, TELMONI_ENDPOINT: bad })).toBeUndefined();
+      }
+      const log = readFileSync(join(home.path, 'state', 'telmoni', 'opencode', 'plugin.log'), 'utf8').trim().split('\n').map((line) => line.replace(/^\S+ /, ''));
+      const refused = 'opencode 2: endpoint refused by the SDK; nothing is sent:';
+      expect(log).toEqual([
+        `${refused} the endpoint must be an http:// or https:// URL`,
+        `${refused} the endpoint must be an http:// or https:// URL`,
+        `${refused} the endpoint must be an http:// or https:// URL`,
+        `${refused} refusing to send the API key over unencrypted HTTP to 'ingest.example'; use HTTPS`,
+      ]);
+      for (const secret of ['private', 'someone', 'hunter2', 'telmoni_test']) expect(log.join('\n')).not.toContain(secret);
     } finally {
       home.remove();
     }

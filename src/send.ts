@@ -10,49 +10,41 @@
  */
 
 import { Telmoni } from 'telmoni';
-import type { CallRecord, RunRecord, StepRecord } from 'telmoni';
+import type { RunRecord } from 'telmoni';
 
 import { kindOf, log as writeLog } from './log.js';
 import { settingsFrom } from './settings.js';
 
-/** How long one turn's export may take, its retries included. */
-const FLUSH_SECONDS = 45;
-
 /** How many turns the platform has not taken are kept to send again: the newest. */
 const KEEP = 200;
 
-/**
- * The most spans the SDK's queue holds for one client. Past it the rest are
- * dropped, the run's own among them, since it ends last, and the run would
- * never end in Telmoni.
- */
-const MAX_SPANS = 2_048;
+/** The SDK's batch, unexported like the limits below: 512 spans an export, one export at a time. */
+const SDK_BATCH_SPANS = 512;
+
+/** The SDK's attempts at an export. */
+const SDK_ATTEMPTS = 3;
+
+/** The SDK's timeout on an attempt. */
+const SDK_ATTEMPT_SECONDS = 10;
+
+/** The SDK's longest wait between two attempts, the cap on a `Retry-After`. */
+const SDK_RETRY_WAIT_SECONDS = 60;
+
+/** The SDK's worst case for an export, 150 seconds: every attempt timed out, each wait its longest. */
+const EXPORT_SECONDS = SDK_ATTEMPTS * SDK_ATTEMPT_SECONDS + (SDK_ATTEMPTS - 1) * SDK_RETRY_WAIT_SECONDS;
+
+/** Past the exports' worst case, so a flush ends on the platform's answer, never before it. */
+const FLUSH_SLACK_SECONDS = 30;
 
 /**
- * `record` with as many of its calls as the SDK will send, the earliest —
- * the run and its start take two places — and how many were left out.
+ * How long a turn's flush may take: past the SDK's worst case for its exports, or a turn
+ * the platform took late is kept, and stored twice if sent again past ingest's hour.
  */
-export function fitted(record: RunRecord, max: number = MAX_SPANS): { record: RunRecord; left: number } {
-  let room = max - 2;
-  let left = 0;
-  const inside: Array<StepRecord | CallRecord> = [];
-  for (const item of record.inside ?? []) {
-    const calls = item.type === 'step' ? (item.calls ?? []) : [];
-    if (room <= 0) {
-      left += 1 + calls.length;
-      continue;
-    }
-    room -= 1;
-    if (item.type !== 'step') {
-      inside.push(item);
-      continue;
-    }
-    const kept = calls.slice(0, room);
-    room -= kept.length;
-    left += calls.length - kept.length;
-    inside.push(kept.length === calls.length ? item : { ...item, calls: kept });
-  }
-  return left === 0 ? { record, left } : { record: { ...record, inside }, left };
+export function flushSecondsOf(record: RunRecord): number {
+  // The SDK makes a span of the run, of its start, of each item and of each step's calls.
+  let spans = 2;
+  for (const item of record.inside ?? []) spans += 1 + (item.type === 'step' ? (item.calls?.length ?? 0) : 0);
+  return FLUSH_SLACK_SECONDS + EXPORT_SECONDS * Math.ceil(spans / SDK_BATCH_SPANS);
 }
 
 /**
@@ -88,7 +80,11 @@ export class Sender {
     // session's content, which a record never holds.
     this.#telmoni = new Telmoni(
       { endpoint: destination.endpoint, apiKey: destination.apiKey },
-      { warn: (message) => void this.#warnings.push(message) },
+      {
+        warn: (message) => void this.#warnings.push(message),
+        // The client is the turn's alone, so its queue takes the turn whole: past 2,048 spans the SDK would refuse it.
+        processor: { maxQueueSize: Number.POSITIVE_INFINITY },
+      },
     );
   }
 
@@ -100,16 +96,14 @@ export class Sender {
    * would hold back every turn after it. A record the SDK refuses is done
    * for the same reason.
    */
-  async send(whole: RunRecord): Promise<boolean> {
-    const { record, left } = fitted(whole);
-    if (left > 0) this.#log(`turn cut to the ${MAX_SPANS - 2} calls the SDK sends of it, the earliest; ${left} left out`);
+  async send(record: RunRecord): Promise<boolean> {
     try {
       this.#telmoni.recordRun(record);
     } catch (error) {
       this.#log(`turn refused by the SDK: ${kindOf(error)}`);
       return true;
     }
-    const flushed = await this.#telmoni.flush(FLUSH_SECONDS);
+    const flushed = await this.#telmoni.flush(flushSecondsOf(record));
     const warnings = this.#warnings.join('; ');
     if (!flushed) {
       this.#log('not sent in time; kept to send again');
@@ -253,20 +247,6 @@ export interface Connection {
 }
 
 /**
- * Whether the SDK can send to `endpoint`: an http or https URL with a host.
- * It passes over one it cannot read, which would then fail every export, and
- * keep every turn, with nothing in the log to say why.
- */
-function sendable(endpoint: string): boolean {
-  try {
-    const url = new URL(endpoint);
-    return (url.protocol === 'https:' || url.protocol === 'http:') && url.hostname !== '';
-  } catch {
-    return false;
-  }
-}
-
-/**
  * What a loaded plugin sends with, or nothing, said once in the log, where it
  * has no key or the SDK refuses its endpoint. Read as OpenCode loads the
  * plugin: a key set later takes effect from OpenCode's next start.
@@ -279,18 +259,13 @@ export function connect(major: 1 | 2, env: NodeJS.ProcessEnv = process.env): Con
     log('no key: set TELMONI_API_KEY, or apiKey in telmoni.json beside your OpenCode configuration; nothing is sent until then');
     return undefined;
   }
-  if (settings.endpoint !== undefined && !sendable(settings.endpoint)) {
-    log('endpoint is no http or https URL; nothing is sent');
-    return undefined;
-  }
   const destination: Destination = { endpoint: settings.endpoint, apiKey: settings.apiKey };
   try {
-    // Asked once here, the SDK refuses an endpoint that would carry the key
-    // in the clear, plain HTTP off this machine; the turns' own clients are
-    // then never refused.
+    // Asked once, as the plugin loads, so the turns' own clients are never refused.
     void new Sender(destination, log).close().catch(() => undefined);
   } catch (error) {
-    log(`endpoint refused by the SDK: ${kindOf(error)}; nothing is sent`);
+    // The SDK's reason names at most the endpoint's host, never its path, a key or a password.
+    log(`endpoint refused by the SDK; nothing is sent: ${error instanceof TypeError ? error.message : kindOf(error)}`);
     return undefined;
   }
   return { outbox: new Outbox({ sender: (turnLog) => new Sender(destination, turnLog), log }), log };

@@ -195,6 +195,73 @@ describe('a subagent in OpenCode 2', () => {
     expect((background.calls ?? []).map((call) => [call.start, call.end, call.cancelled])).toEqual([[at(1_300), at(2_000), true]]);
     expect(sent[1]!.inside).toHaveLength(1);
   });
+
+  it('working through a subagent of its own holds that subagent’s calls beside the call that started it', () => {
+    const kid = subagentCall('ses_root', 'call_kid', 'ses_kid', 1_000, 9_000);
+    const grandchild = subagentCall('ses_kid', 'call_grand', 'ses_grand', 3_000, 6_000);
+    const run = only(
+      replay([
+        event('session.execution.started', 0, { sessionID: 'ses_root' }),
+        step('ses_root', 'msg_root_a', 100),
+        ...kid.open,
+        event('session.created', 1_030, { sessionID: 'ses_kid', parentID: 'ses_root', agent: 'explore', title: '…' }),
+        event('session.execution.started', 1_040, { sessionID: 'ses_kid' }),
+        ...reply('ses_kid', 'msg_kid_a1', 1_300),
+        ...grandchild.open,
+        event('session.created', 3_030, { sessionID: 'ses_grand', parentID: 'ses_kid', agent: 'general', title: '…' }),
+        event('session.execution.started', 3_040, { sessionID: 'ses_grand' }),
+        ...reply('ses_grand', 'msg_grand_a1', 3_300),
+        event('session.execution.succeeded', 5_900, { sessionID: 'ses_grand' }),
+        grandchild.close,
+        event('session.execution.succeeded', 8_900, { sessionID: 'ses_kid' }),
+        kid.close,
+        event('session.step.ended', 9_100, { sessionID: 'ses_root', assistantMessageID: 'msg_root_a', finish: 'stop', cost: 0, tokens }),
+        event('session.execution.succeeded', 9_200, { sessionID: 'ses_root' }),
+      ]).sent,
+    );
+    const found = (run.inside ?? []).find((item): item is StepRecord => item.type === 'step')!;
+    expect(found.name).toBe('subagent explore');
+    expect((found.calls ?? []).map((call) => [call.type === 'model_call' ? 'model' : call.name, call.start, call.end])).toEqual([
+      ['model', at(1_300), at(1_800)],
+      ['subagent', at(3_010), at(6_000)],
+      ['model', at(3_300), at(3_800)],
+    ]);
+  });
+
+  it('is followed four deep at most: a deeper subagent’s calls are not kept, and the call that started it stands as a call', () => {
+    const events: V2Event[] = [
+      event('session.execution.started', 0, { sessionID: 'ses_chain_0' }),
+      event('session.inbox.delivered', 5, { sessionID: 'ses_chain_0', inboxID: 'msg_chain_0_u' }),
+      step('ses_chain_0', 'msg_chain_0_a', 100),
+    ];
+    const closes: V2Event[] = [];
+    for (let level = 1; level <= 6; level++) {
+      const call = subagentCall(`ses_chain_${level - 1}`, `call_chain_${level}`, `ses_chain_${level}`, level * 1_000, 20_000 - level * 1_000);
+      events.push(
+        ...call.open,
+        event('session.created', level * 1_000 + 30, { sessionID: `ses_chain_${level}`, parentID: `ses_chain_${level - 1}`, agent: 'general', title: '…' }),
+        ...reply(`ses_chain_${level}`, `msg_chain_${level}_a`, level * 1_000 + 100),
+      );
+      closes.unshift(call.close);
+    }
+    events.push(
+      ...closes,
+      event('session.step.ended', 19_500, { sessionID: 'ses_chain_0', assistantMessageID: 'msg_chain_0_a', finish: 'stop', cost: 0, tokens }),
+      event('session.execution.succeeded', 19_600, { sessionID: 'ses_chain_0' }),
+    );
+    const found = (only(replay(events).sent).inside ?? []).find((item): item is StepRecord => item.type === 'step')!;
+    expect(found.name).toBe('subagent general');
+    expect((found.calls ?? []).map((call) => [call.type === 'model_call' ? 'model' : call.name, call.start])).toEqual([
+      ['model', at(1_100)],
+      ['subagent', at(2_010)],
+      ['model', at(2_100)],
+      ['subagent', at(3_010)],
+      ['model', at(3_100)],
+      ['subagent', at(4_010)],
+      ['model', at(4_100)],
+      ['subagent', at(5_010)],
+    ]);
+  });
 });
 
 describe('an OpenCode 2 turn that did not end well', () => {

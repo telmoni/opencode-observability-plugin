@@ -6,7 +6,7 @@
  * that folder and reloads its configuration on every write there.
  */
 
-import { readFileSync, statSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 
@@ -70,26 +70,32 @@ interface KeyFile {
  * sent to it.
  */
 function readKeyFile(path: string): KeyFile | undefined {
-  let stat: ReturnType<typeof statSync>;
+  let fd: number;
   try {
-    stat = statSync(path);
+    // Without blocking, so a FIFO at the path cannot hold OpenCode until something writes to it.
+    fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT' || code === 'ENOTDIR') return undefined;
+    if (code === 'EISDIR') return { problem: 'not a file' };
     return { problem: `unreadable (${kindOf(error)})` };
   }
-  if (!stat.isFile()) return { problem: 'not a file' };
-  if (process.platform !== 'win32') {
-    if ((stat.mode & 0o077) !== 0) return { problem: 'open to other users; chmod 600 it' };
-    const uid = process.getuid?.();
-    if (uid !== undefined && stat.uid !== uid) return { problem: 'owned by another user' };
-  }
-  if (stat.size > MAX_KEY_FILE_BYTES) return { problem: 'too large' };
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(path, 'utf8'));
+    // Checked on the descriptor it is read from, so the file checked is the file read.
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) return { problem: 'not a file' };
+    if (process.platform !== 'win32') {
+      if ((stat.mode & 0o077) !== 0) return { problem: 'open to other users; chmod 600 it' };
+      const uid = process.getuid?.();
+      if (uid !== undefined && stat.uid !== uid) return { problem: 'owned by another user' };
+    }
+    if (stat.size > MAX_KEY_FILE_BYTES) return { problem: 'too large' };
+    parsed = JSON.parse(readFileSync(fd, 'utf8'));
   } catch (error) {
     return { problem: error instanceof SyntaxError ? 'not JSON' : `unreadable (${kindOf(error)})` };
+  } finally {
+    closeSync(fd);
   }
   const fields = fieldsOf(parsed);
   if (fields === undefined) return { problem: 'not a JSON object' };

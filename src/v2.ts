@@ -440,6 +440,8 @@ async function follow(
         log(`event not read: ${kindOf(error)}`);
       }
     }
+    // Ended with the plugin still loaded: no turn after it is recorded.
+    if (!signal.aborted) log('event stream ended');
   } catch (error) {
     if (!signal.aborted) log(`event stream ended: ${kindOf(error)}`);
   }

@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { V1Hooks, V2Cleanup, V2Context } from '../src/opencode';
+import type { V1Client, V1Hooks, V2Cleanup, V2Context } from '../src/opencode';
 import { runIdOf } from '../src/record';
 import { SHUTDOWN_WAIT_MS } from '../src/send';
 import {
@@ -137,7 +137,7 @@ describe('the plugin, as OpenCode 1 loads it', () => {
     expect(bodies).not.toContain('/work');
     await hooks.dispose!();
     expect(existsSync(logPath())).toBe(false);
-  });
+  }, 20_000);
 
   it('is set up as a definition too, as OpenCode 1.19 does through its own host, and stays out of it there', async () => {
     const fixture = v1Fixture('turn');
@@ -153,6 +153,31 @@ describe('the plugin, as OpenCode 1 loads it', () => {
     await hooks.dispose!();
     expect(runs()).toBe(1);
     expect(existsSync(logPath())).toBe(false);
+  }, 20_000);
+
+  it('sends a turn it is still reading as OpenCode shuts down, as a one-shot run does as its turn ends', async () => {
+    const fixture = v1Fixture('turn');
+    const client = fakeClient(fixture);
+    let answer = (): void => undefined;
+    const reading = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    const held: V1Client = {
+      session: {
+        get: (options) => client.session.get(options),
+        messages: async (options) => {
+          await reading;
+          return client.session.messages(options);
+        },
+      },
+    };
+    const hooks = await asOpenCode1({ client: held });
+    happening(fixture);
+    for (const event of fixture.events) await hooks.event!({ event });
+    const disposed = hooks.dispose!();
+    answer();
+    await disposed;
+    expect(runs()).toBe(1);
   });
 });
 
@@ -184,7 +209,7 @@ describe('the plugin, as OpenCode 2 loads it', () => {
     // Nothing written beside OpenCode's configuration, which OpenCode 2 reloads on every write there.
     expect(readdirSync(config)).toEqual(['telmoni.json']);
     expect(existsSync(logPath())).toBe(false);
-  });
+  }, 20_000);
 
   it('loaded twice, under both `plugin` and `plugins`, sends the same turn as the same bytes, which ingest answers once', async () => {
     const events = now(v2Fixture('turn')).events;
@@ -192,6 +217,14 @@ describe('the plugin, as OpenCode 2 loads it', () => {
     expect(await until(() => ingest.received.length === 2, 10_000)).toBe(true);
     expect(ingest.received[0]!.body).toBe(ingest.received[1]!.body);
     for (const cleanup of cleanups) await (cleanup as V2Cleanup)();
+  }, 20_000);
+
+  it('says so in its log where OpenCode’s event stream ends while it is loaded', async () => {
+    const context: V2Context = { event: { subscribe: () => ({ async *[Symbol.asyncIterator]() {} }) } };
+    const cleanup = await asOpenCode2(context);
+    expect(await until(() => existsSync(logPath()), 2_000)).toBe(true);
+    expect(readFileSync(logPath(), 'utf8').trim().split('\n').map((line) => line.replace(/^\S+ /, ''))).toEqual(['opencode 2: event stream ended']);
+    await (cleanup as V2Cleanup)();
   });
 });
 
@@ -199,8 +232,18 @@ describe('the plugin, either way', () => {
   it('with no key, sends nothing, and says so once each time it is loaded', async () => {
     delete process.env['TELMONI_API_KEY'];
     expect(await asOpenCode1({ client: fakeClient(v1Fixture('turn')) })).toEqual({});
-    expect(await asOpenCode2(fakeContext(v2Fixture('turn').events))).toBeUndefined();
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    let followed = false;
+    const events = fakeContext(v2Fixture('turn').events).event!;
+    const context: V2Context = {
+      event: {
+        subscribe: (options) => {
+          followed = true;
+          return events.subscribe(options);
+        },
+      },
+    };
+    expect(await asOpenCode2(context)).toBeUndefined();
+    expect(followed).toBe(false);
     expect(ingest.received).toEqual([]);
     const lines = readFileSync(logPath(), 'utf8').trim().split('\n').map((line) => line.replace(/^\S+ /, ''));
     const advice = 'no key: set TELMONI_API_KEY, or apiKey in telmoni.json beside your OpenCode configuration; nothing is sent until then';
@@ -238,5 +281,5 @@ describe('the plugin, either way', () => {
     expect(performance.now() - started).toBeLessThan(2 * SHUTDOWN_WAIT_MS);
     expect(await until(() => ingest.answered === 2, 5_000)).toBe(true);
     expect(runs()).toBe(2);
-  });
+  }, 25_000);
 });

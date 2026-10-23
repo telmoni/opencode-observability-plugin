@@ -88,6 +88,52 @@ const updated = (info: Record<string, unknown>) => ({
   properties: { sessionID: info['sessionID'], info },
 });
 
+/** A turn whose `task` call ran a subagent, which ran one of its own, and so on, `depth` sessions below the turn's. */
+function chain(depth: number): V1Fixture {
+  const events: V1Fixture['events'] = [];
+  const sessions: V1Fixture['sessions'] = {};
+  for (let level = 0; level <= depth; level++) {
+    const id = `ses_chain_${level}`;
+    const info = { id, ...(level === 0 ? {} : { parentID: `ses_chain_${level - 1}` }), title: '…' };
+    const parts: unknown[] = stepped(`msg_chain_${level}_a`, id);
+    if (level < depth) {
+      parts.push({
+        id: `prt_chain_${level}_task`,
+        sessionID: id,
+        messageID: `msg_chain_${level}_a`,
+        type: 'tool',
+        callID: `call_chain_${level}`,
+        tool: 'task',
+        state: {
+          status: 'completed',
+          input: { description: '…', prompt: '…', subagent_type: 'general' },
+          output: '…',
+          title: '…',
+          metadata: { sessionId: `ses_chain_${level + 1}` },
+          time: { start: at((level + 1) * 1_000), end: at(30_000 - level * 1_000) },
+        },
+      });
+    }
+    sessions[id] = {
+      info,
+      messages: [
+        { info: { id: `msg_chain_${level}_u`, sessionID: id, role: 'user', time: { created: at(level * 1_000 + 50) }, agent: 'general' }, parts: [] },
+        {
+          info: {
+            ...assistant(`msg_chain_${level}_a`, id, `msg_chain_${level}_u`, at(level * 1_000 + 100)),
+            agent: 'general',
+            time: { created: at(level * 1_000 + 100), completed: at(30_000 - level * 1_000) },
+          },
+          parts,
+        },
+      ],
+    };
+    events.push({ id: `evt_chain_${level}`, type: 'session.created', properties: { sessionID: id, info } });
+  }
+  events.push(status('ses_chain_0', 'busy'), updated(assistant('msg_chain_0_a', 'ses_chain_0', 'msg_chain_0_u', at(100))), status('ses_chain_0', 'idle'));
+  return { events, sessions };
+}
+
 describe('a turn of OpenCode 1', () => {
   it('is one run of opencode in the session, named by the prompt it answers, from the prompt to its last reply', async () => {
     const run = only((await replay('turn')).sent);
@@ -350,6 +396,31 @@ describe('a subagent in OpenCode 1', () => {
     expect(sent).toEqual([]);
     expect(reads.map((read) => read.path)).toEqual(['/session/ses_kid']);
   });
+
+  it('is read four deep at most: a deeper subagent’s session is never read, and the call that ran it stands as a call', async () => {
+    const { sent, reads } = await replay(chain(6));
+    const step = (only(sent).inside ?? []).find((item): item is StepRecord => item.type === 'step')!;
+    expect(step.name).toBe('subagent general');
+    expect((step.calls ?? []).map((call) => [call.type === 'model_call' ? 'model' : call.name, call.start])).toEqual([
+      ['model', at(1_100)],
+      ['task', at(2_000)],
+      ['model', at(2_100)],
+      ['task', at(3_000)],
+      ['model', at(3_100)],
+      ['task', at(4_000)],
+      ['model', at(4_100)],
+      ['task', at(5_000)],
+    ]);
+    expect(reads.map((read) => read.path)).toEqual([0, 1, 2, 3, 4].map((level) => `/session/ses_chain_${level}/message`));
+  });
+
+  it('whose session cannot be read stands as the call that ran it, the log naming the read’s status alone', async () => {
+    const fixture = chain(1);
+    delete fixture.sessions['ses_chain_1'];
+    const { sent, logged } = await replay(fixture);
+    expect((only(sent).inside ?? []).map((item) => (item.type === 'tool_call' ? item.name : item.type))).toEqual(['model_call', 'task']);
+    expect(logged).toEqual(['ses_chain_0: subagent not read: ReadError:404']);
+  });
 });
 
 describe('an OpenCode 1 turn that did not end well', () => {
@@ -444,7 +515,7 @@ describe('what is no turn in OpenCode 1', () => {
 });
 
 describe('an OpenCode 1 turn’s name', () => {
-  it('is its first reply where it takes up a prompt an earlier turn already answered', async () => {
+  it('is its first reply where it takes up a prompt an earlier turn already answered, and it opens there', async () => {
     const fixture: V1Fixture = {
       events: [
         status('ses_again', 'busy'),
@@ -467,6 +538,10 @@ describe('an OpenCode 1 turn’s name', () => {
     };
     const { sent } = await replay(fixture);
     expect(sent.map((run) => run.runId)).toEqual([runIdOf('ses_again', 'msg_u1'), runIdOf('ses_again', 'msg_a2')]);
+    expect(sent.map((run) => [run.start, run.end])).toEqual([
+      [at(0), at(500)],
+      [at(1_000), at(1_500)],
+    ]);
   });
 });
 
