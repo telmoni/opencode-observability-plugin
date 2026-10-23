@@ -1,6 +1,6 @@
 {
   "name": "@telmoni/opencode-observability-plugin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Telmoni for OpenCode: each turn of a session recorded as a run, metadata only",
   "license": "Apache-2.0",
   "author": "Kendrick Lawton",
