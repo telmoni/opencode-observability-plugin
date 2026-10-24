@@ -1,20 +1,11 @@
 /**
- * OpenCode 1: a plugin is a function OpenCode calls with its client, and its
- * `event` hook sees every event of the folder it was loaded for. A turn runs
- * from a session's `busy` to its `idle`; the replies OpenCode writes in
- * between are noted by id as they appear, and at `idle` the session's
- * messages are read through the client and the turn recorded from them.
- *
- * Of a reply the plugin reads its ids, times, model, provider, agent, token
- * counts and the kind of its error; of a part its type and times, and of a
- * tool part its name, status, and two fields of its metadata: whether it was
- * interrupted, and the subagent session it started. Never a part's text, a
- * tool's input, output or title, a path, or an error's message.
+ * OpenCode 1: a plugin is a function called with OpenCode's client, whose `event` hook sees every event of the folder it
+ * was loaded for. A turn runs from a session's `busy` to its `idle`, when its messages are read through the client and the turn recorded, metadata alone.
  */
 
 import type { CallRecord, ModelCallRecord, RunRecord, StepRecord, Usage } from 'telmoni';
 
-import { kindOf } from './log.js';
+import { kindOf, tag } from './log.js';
 import {
   type Fields,
   type V1Client,
@@ -42,7 +33,7 @@ import {
   toolCall,
   usageOf,
 } from './record.js';
-import { connect } from './send.js';
+import { connectQuietly } from './send.js';
 
 /** How many messages one read asks for; a longer turn is read a page further back. */
 const PAGE_SIZE = 50;
@@ -89,9 +80,8 @@ function byCreation(a: V1Message, b: V1Message): number {
 }
 
 /**
- * Whether a reply was the model's: a step of it began or finished, or it
- * failed. A command the person ran in the shell is written as a reply too,
- * holding the command as a tool, with no step at all.
+ * Whether a reply was the model's: a step of it began or finished, or it failed. A command the person ran in the shell
+ * is written as a reply too, holding the command as a tool, with no step at all.
  */
 function isModelReply(reply: V1Message): boolean {
   return (
@@ -122,9 +112,8 @@ function answeredAt(reply: V1Message, created: number): number | undefined {
 }
 
 /**
- * A reply of the model as a model call, from the request to the end of its
- * answer: a reply's own completion waits on the tools it asked for, which
- * are calls of their own.
+ * A reply of the model as a model call, from the request to the end of its answer: a reply's own completion waits on
+ * the tools it asked for, which are calls of their own.
  */
 function modelCallOf(reply: V1Message): ModelCallRecord | undefined {
   const model = stringOf(reply.info['modelID']);
@@ -133,8 +122,7 @@ function modelCallOf(reply: V1Message): ModelCallRecord | undefined {
   const completed = completedOf(reply);
   const answered = answeredAt(reply, created);
   const end = answered === undefined ? (completed ?? created) : Math.min(answered, completed ?? answered);
-  // Each step's tokens are written apart, and a reply's own count holds only
-  // its last step's; with no step finished, it is the reply's own or none.
+  // Each step's tokens are written apart, and a reply's own count holds only its last step's; with no step finished, it is the reply's own or none.
   let usage: Usage | undefined;
   let finished = false;
   for (const part of reply.parts) {
@@ -158,8 +146,7 @@ function toolSpanOf(part: Fields, replyEnd: number): Span {
     case 'completed':
       return { start, end };
     case 'error':
-      // OpenCode marks a tool the person interrupted as an error, with this
-      // flag in its metadata; nothing else of the metadata is read.
+      // OpenCode marks a tool the person interrupted as an error, with this flag in its metadata; nothing else of the metadata is read.
       return fieldsOf(state['metadata'])?.['interrupted'] === true
         ? { start, end, cancelled: true }
         : { start, end, errorType: 'ToolError' };
@@ -201,10 +188,8 @@ function isCall(item: CallRecord | StepRecord): item is CallRecord {
 }
 
 /**
- * The calls among `replies`. A subagent's call, its session read, is at the
- * top (`depth` 0) a step of the subagent's own calls, and below it the
- * subagent's calls beside the call that started it. A subagent session taken
- * up again by a later call is read from each call to the next.
+ * The calls among `replies`. A subagent's call, its session read, is at the top (`depth` 0) a step of the subagent's
+ * own calls, below it a call beside the one that started it; a session taken up again by a later call is read from each call to the next.
  */
 async function callsIn(
   replies: readonly V1Message[],
@@ -241,7 +226,8 @@ async function callsIn(
         const agent = within.map((message) => agentOf(message.info['agent'])).find((found) => found !== undefined);
         items.push(subagentStep(agent, span, inner));
       } else {
-        items.push(toolCall(name, span), ...inner);
+        items.push(toolCall(name, span));
+        for (const call of inner) items.push(call);
       }
     }
   }
@@ -249,10 +235,8 @@ async function callsIn(
 }
 
 /**
- * The turn whose replies are `replies` as a run, or nothing where none of
- * them was the model's. It is named by the prompt it answers; a turn taking
- * up a prompt an earlier turn already answered is named by its first reply
- * instead, so two turns never share a run id.
+ * The turn whose replies are `replies` as a run, or nothing where none was the model's: named by the prompt it answers,
+ * or, taking up a prompt an earlier turn answered, by its first reply, so two turns never share a run id.
  */
 async function turnOf(
   sessionId: string,
@@ -298,11 +282,6 @@ function covers(messages: readonly V1Message[], replies: ReadonlySet<string>): b
   return prompt === undefined || ids.has(prompt);
 }
 
-/** The first characters of a session's id: enough to tell its lines apart in the log. */
-function tag(sessionId: string): string {
-  return sessionId.slice(0, 12);
-}
-
 interface Open {
   /** When the session went busy, as the plugin saw it. */
   since: number;
@@ -332,11 +311,7 @@ export class V1Turns {
     this.#deps = deps;
   }
 
-  /**
-   * One event. OpenCode calls the hook from inside its own publishing, so
-   * this only notes what it needs and returns; reading a turn that has
-   * ended goes on after.
-   */
+  /** One event. OpenCode calls the hook from inside its own publishing, so this only notes what it needs and returns; reading a turn that has ended goes on after. */
   handle(event: V1Event): void {
     const properties = fieldsOf(event.properties);
     if (properties === undefined) return;
@@ -368,9 +343,7 @@ export class V1Turns {
         return;
       }
       case 'session.idle': {
-        // Deprecated, and sent just after `session.status` turns idle:
-        // whichever comes first ends the turn, so a release without either
-        // still ends it.
+        // Deprecated, and sent just after `session.status` turns idle: whichever comes first ends the turn, so a release without either still ends it.
         const id = idOf(properties['sessionID']);
         if (id !== undefined) this.#close(id);
         return;
@@ -381,17 +354,14 @@ export class V1Turns {
         const open = this.#open.get(idOf(info['sessionID']) ?? idOf(properties['sessionID']) ?? '');
         const id = idOf(info['id']);
         const created = timeOf(fieldsOf(info['time'])?.['created']);
-        // A fork copies its history through this same event, outside any
-        // busy turn of its own: only what is made while a session is busy
-        // is its turn's.
+        // A fork copies its history through this same event, outside any busy turn of its own: only what is made while a session is busy is its turn's.
         if (open !== undefined && id !== undefined && created !== undefined && created >= open.since - SLACK_MS) {
           open.replies.add(id);
         }
         return;
       }
       case 'message.removed': {
-        // Taken back while its turn ran: a reply the read would otherwise
-        // look for back to the session's start, and never find.
+        // Taken back while its turn ran: a reply the read would otherwise look for back to the session's start, and never find.
         const id = idOf(properties['messageID']);
         if (id !== undefined) this.#open.get(idOf(properties['sessionID']) ?? '')?.replies.delete(id);
         return;
@@ -488,21 +458,11 @@ function clientOf(value: unknown): V1Client | undefined {
 }
 
 /**
- * OpenCode 1's entry: called once for each folder OpenCode opens, with that
- * folder's client. The hooks never throw into OpenCode, and the event hook
- * never waits on the network: a turn is read after the event that ended it
- * and sent in the background. `dispose` alone waits, a few seconds at most:
- * OpenCode runs it as it closes the folder, a one-shot `opencode run` before
- * it exits.
+ * OpenCode 1's entry, called once for each folder OpenCode opens, with that folder's client: the hooks never throw into
+ * OpenCode nor wait on the network, a turn read and sent in the background after the event that ended it; `dispose` alone waits, a few seconds at most, as the folder closes.
  */
 export async function server(input: V1Input): Promise<V1Hooks> {
-  let connection: ReturnType<typeof connect>;
-  try {
-    connection = connect(1);
-  } catch {
-    // No folder known to say so in: a plugin that does nothing, rather than one OpenCode sees fail.
-    return {};
-  }
+  const connection = connectQuietly(1);
   if (connection === undefined) return {};
   const client = clientOf(input?.client);
   if (client === undefined) {

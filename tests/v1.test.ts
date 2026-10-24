@@ -614,8 +614,7 @@ describe('an OpenCode 1 turn in a session too long to read back through', () => 
 
 describe('an OpenCode 1 turn whose clock runs backwards', () => {
   it('never holds a span that ends before it starts, which the SDK would refuse whole', async () => {
-    // Every time in every fixture's messages mirrored, so each later thing
-    // reads as earlier: the worst a clock stepping back can do.
+    // Every time in every fixture's messages mirrored, so each later thing reads as earlier: the worst a clock stepping back can do.
     for (const name of ['turn', 'subagent', 'interrupted', 'failed']) {
       const fixture = v1Fixture(name);
       const mirror = (value: unknown, key?: string): unknown => {

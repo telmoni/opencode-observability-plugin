@@ -1,18 +1,12 @@
 /**
- * Sends each finished turn through the TypeScript SDK, one export each, from
- * a client of its own, whose warnings are then that turn's alone: a turn the
- * SDK could not deliver is kept, and sent again before the next one. The
- * same record sent again is the same bytes, which ingest answers once.
- *
- * Every send goes through one chain, so two turns ending together never send
- * at once, and nothing OpenCode waits on waits on it — but OpenCode's
- * shutdown, which waits for it a few seconds at most.
+ * Sends each finished turn through the TypeScript SDK from a client of its own, whose warnings are that turn's alone; a
+ * turn not delivered is kept and sent again, the same bytes, through one chain OpenCode waits on only as it shuts down.
  */
 
 import { Telmoni } from 'telmoni';
 import type { RunRecord } from 'telmoni';
 
-import { kindOf, log as writeLog } from './log.js';
+import { kindOf, log as writeLog, tag } from './log.js';
 import { settingsFrom } from './settings.js';
 
 /** How many turns the platform has not taken are kept to send again: the newest. */
@@ -47,12 +41,14 @@ export function flushSecondsOf(record: RunRecord): number {
   return FLUSH_SLACK_SECONDS + EXPORT_SECONDS * Math.ceil(spans / SDK_BATCH_SPANS);
 }
 
-/**
- * The most OpenCode is held, as it shuts down, for the turns still to send:
- * a one-shot `opencode run` exits as its turn ends, and nothing interactive
- * waits on a shutdown.
- */
+/** How long OpenCode's shutdown waits on the turns still to send: `opencode run` exits as its one turn ends. */
 export const SHUTDOWN_WAIT_MS = 3_000;
+
+/**
+ * How long after a round a turn still waiting is tried again, where no turn's end has started one: well inside ingest's
+ * hour, so a turn delivered in part is finished while ingest still answers the part it took, rather than storing it twice.
+ */
+export const RETRY_MS = 5 * 60_000;
 
 export interface Destination {
   endpoint: string | undefined;
@@ -60,13 +56,17 @@ export interface Destination {
 }
 
 /**
- * How the SDK words an export it gave up on after its own retries — a
- * connection that failed or timed out, a `429` or a `503` — the one failure
- * that sending the same bytes later may mend. Every other warning is an
- * answer: a refusal, or a span refused or a field dropped from an export
- * that was taken, which ingest gives again for the hour to the same bytes.
+ * The SDK's warnings of spans it could not deliver, which a later round may yet get through: Telmoni out of reach or busy
+ * past its retries, or an answer that may change. Every other warning is of bytes delivered, or refused for good.
  */
-const GAVE_UP = 'telmoni: export failed after ';
+const UNDELIVERED = /^telmoni: (?:export failed after |an export failed \(|the export queue was full|export refused with (?!400 |401 |402 |403 |413 |500 ))/;
+/** Ingest's `500` for a fault of its database, which a later round may find mended, as it would none of its other `500`s. */
+const DATABASE_FAILED = /^telmoni: export refused with 500 \/errors\/internal\/database;/;
+/**
+ * An export refused for good: for what it holds (`400`, `413`), a fault of ingest's own (any other `500`), an organization
+ * paused (`402`), or its key (`401`, `403`), which the plugin reads once a load, so every round would be refused alike.
+ */
+const REFUSED = /^telmoni: export refused with (?:400|401|402|403|413|500) /;
 
 /** One turn's send, through a client made for it and shut down after. */
 export class Sender {
@@ -76,8 +76,7 @@ export class Sender {
 
   constructor(destination: Destination, log: (line: string) => void) {
     this.#log = log;
-    // The SDK's warnings name kinds and the platform's answers, never a
-    // session's content, which a record never holds.
+    // The SDK's warnings name kinds and the platform's answers, never a session's content, which a record never holds.
     this.#telmoni = new Telmoni(
       { endpoint: destination.endpoint, apiKey: destination.apiKey },
       {
@@ -89,12 +88,8 @@ export class Sender {
   }
 
   /**
-   * Whether the turn is done with: false only where it is worth sending
-   * again, its export unfinished in time or given up on by the SDK. A turn
-   * the platform answered is done, taken or not: a refusal, whole or of a
-   * span, would come back however often it was sent, and a turn kept for it
-   * would hold back every turn after it. A record the SDK refuses is done
-   * for the same reason.
+   * Whether the turn is done with: taken, whole or in part, or refused for good, which every round would get again, and
+   * kept would hold back every turn after it. The SDK's warnings never carry anything of the session.
    */
   async send(record: RunRecord): Promise<boolean> {
     try {
@@ -109,11 +104,12 @@ export class Sender {
       this.#log('not sent in time; kept to send again');
       return false;
     }
-    if (this.#warnings.some((warning) => warning.startsWith(GAVE_UP))) {
+    if (this.#warnings.some((warning) => UNDELIVERED.test(warning) || DATABASE_FAILED.test(warning))) {
       this.#log(`not sent; kept to send again: ${warnings}`);
       return false;
     }
-    if (this.#warnings.length > 0) this.#log(`Telmoni did not take all of the turn: ${warnings}`);
+    if (this.#warnings.some((warning) => REFUSED.test(warning))) this.#log(`refused, not sent again: ${warnings}`);
+    else if (this.#warnings.length > 0) this.#log(`taken in part: ${warnings}`);
     return true;
   }
 
@@ -128,11 +124,8 @@ export interface OutboxDeps {
   log: (line: string) => void;
   /** How many turns not taken are kept. */
   keep?: number;
-}
-
-/** The first characters of a session's id: enough to tell its lines apart in the log. */
-function tag(record: RunRecord): string {
-  return (record.sessionId ?? record.runId).slice(0, 12);
+  /** How long after a round a turn still waiting is tried again. */
+  retryMs?: number;
 }
 
 /** `work`, or `ms` passing, whichever comes first; never rejects. */
@@ -144,8 +137,7 @@ async function within(ms: number, work: Promise<unknown>): Promise<void> {
         () => undefined,
         () => undefined,
       ),
-      // Held, not unref'd: OpenCode waits on this as it shuts down, and must
-      // be let go when the time is up whatever else holds the process.
+      // Held, not unref'd: OpenCode waits on this as it shuts down, and must be let go when the time is up whatever else holds the process.
       new Promise<void>((resolve) => {
         timer = setTimeout(resolve, ms);
       }),
@@ -156,11 +148,9 @@ async function within(ms: number, work: Promise<unknown>): Promise<void> {
 }
 
 /**
- * The turns waiting to be sent, oldest first, and the one chain they are
- * sent through. A turn that ends starts a round: every turn waiting is sent
- * in order, and a turn the SDK could not deliver ends the round, kept with
- * those after it for the next — a Telmoni that does not answer is asked once
- * a round, not once a turn.
+ * The turns waiting to be sent, oldest first, and the one chain they go through: each turn's end starts a round sending
+ * them in order, ended by the first not delivered, so a Telmoni that does not answer is asked once a round; while any
+ * wait, a round comes on its own too, until OpenCode shuts the plugin down.
  */
 export class Outbox {
   readonly #deps: OutboxDeps;
@@ -168,6 +158,10 @@ export class Outbox {
   #chain: Promise<void> = Promise.resolve();
   /** Whether a round is already waiting its place in the chain, and will find whatever is added before it starts. */
   #due = false;
+  /** The round to come on its own for the turns still waiting. */
+  #retry: ReturnType<typeof setTimeout> | undefined;
+  /** Set as OpenCode shuts the plugin down, after which no round comes on its own. */
+  #draining = false;
 
   constructor(deps: OutboxDeps) {
     this.#deps = deps;
@@ -201,6 +195,7 @@ export class Outbox {
         } catch (error) {
           this.#deps.log(`not sent: ${kindOf(error)}`);
         }
+        this.#again();
       });
     }
     return this.#chain;
@@ -211,7 +206,17 @@ export class Outbox {
    * hands over as it settles, waiting for it all for `ms` at most.
    */
   drain(before: Promise<unknown> = Promise.resolve(), ms: number = SHUTDOWN_WAIT_MS): Promise<void> {
+    this.#draining = true;
     return within(ms, Promise.all([this.flush(), before.catch(() => undefined)]).then(() => this.flush()));
+  }
+
+  /** A round in a while for what still waits; unref'd, so it never holds OpenCode open. */
+  #again(): void {
+    clearTimeout(this.#retry);
+    this.#retry = undefined;
+    if (this.#draining || this.#waiting.length === 0) return;
+    this.#retry = setTimeout(() => void this.flush(), this.#deps.retryMs ?? RETRY_MS);
+    this.#retry.unref();
   }
 
   async #round(): Promise<void> {
@@ -219,15 +224,14 @@ export class Outbox {
       const record = this.#waiting[0];
       if (record === undefined) return;
       if (!(await this.#once(record))) return;
-      // Found by itself rather than by place: older turns may have been
-      // dropped while it was being sent.
+      // Found by itself rather than by place: older turns may have been dropped while it was being sent.
       const at = this.#waiting.indexOf(record);
       if (at !== -1) this.#waiting.splice(at, 1);
     }
   }
 
   async #once(record: RunRecord): Promise<boolean> {
-    const log = (line: string): void => this.#deps.log(`${tag(record)}: ${line}`);
+    const log = (line: string): void => this.#deps.log(`${tag(record.sessionId ?? record.runId)}: ${line}`);
     let sender: ReturnType<OutboxDeps['sender']> | undefined;
     try {
       sender = this.#deps.sender(log);
@@ -246,15 +250,27 @@ export interface Connection {
   log: (line: string) => void;
 }
 
+/** `connect`, or nothing where not even the settings can be read: with nowhere to say so, the plugin does nothing. */
+export function connectQuietly(major: 1 | 2): Connection | undefined {
+  try {
+    return connect(major);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
- * What a loaded plugin sends with, or nothing, said once in the log, where it
- * has no key or the SDK refuses its endpoint. Read as OpenCode loads the
- * plugin: a key set later takes effect from OpenCode's next start.
+ * What a loaded plugin sends with, or nothing, said once in the log, where it has no key, its key file was passed over
+ * or the SDK refuses its endpoint. Read as OpenCode loads the plugin: a key set later takes effect from its next start.
  */
 export function connect(major: 1 | 2, env: NodeJS.ProcessEnv = process.env): Connection | undefined {
   const settings = settingsFrom(env);
   const log = (line: string): void => writeLog(settings.dir, `opencode ${major}: ${line}`);
-  if (settings.keyFileProblem !== undefined) log(`key file not used: ${settings.keyFileProblem}`);
+  // The file passed over may have named the endpoint: the key never goes to the default in its place.
+  if (settings.keyFileProblem !== undefined) {
+    log(`key file not used: ${settings.keyFileProblem}; fix it, or set both TELMONI_API_KEY and TELMONI_ENDPOINT; nothing is sent until then`);
+    return undefined;
+  }
   if (settings.apiKey === undefined) {
     log('no key: set TELMONI_API_KEY, or apiKey in telmoni.json beside your OpenCode configuration; nothing is sent until then');
     return undefined;

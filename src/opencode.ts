@@ -1,9 +1,6 @@
 /**
- * The little of OpenCode the plugin touches, defined here rather than taken
- * from OpenCode's packages: one package serves both majors, which publish
- * their types under different names, and nothing of either is needed at run
- * time. Every value OpenCode hands over is read through the guards below, so
- * a field that changes shape is passed over rather than trusted.
+ * The little of OpenCode the plugin touches, defined here since one package serves both majors, whose types differ by
+ * name and matter nothing at run time; every value OpenCode hands over passes a guard, so a field that changes shape is passed over.
  */
 
 /** A plain object, or nothing. */
@@ -31,9 +28,8 @@ export function idOf(value: unknown): string | undefined {
 }
 
 /**
- * The id a call is matched by, which OpenCode 2 takes from the provider
- * (`toolu_…`, `call_…`, Kimi's `functions.read:0`): only ever compared, never
- * recorded or logged, so any short string.
+ * The id a call is matched by, which OpenCode 2 takes from the provider (`toolu_…`, `call_…`, Kimi's
+ * `functions.read:0`): only ever compared, never recorded or logged, so any short string.
  */
 export function keyOf(value: unknown): string | undefined {
   return typeof value === 'string' && value !== '' && value.length <= 256 ? value : undefined;

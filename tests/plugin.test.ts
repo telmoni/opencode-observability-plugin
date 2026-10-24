@@ -41,11 +41,7 @@ async function definition(): Promise<{ module: Record<string, unknown>; value: D
   return { module, value: module['default'] as Definition };
 }
 
-/**
- * As OpenCode 1.19 loads a plugin: a default export that is an object with
- * an `id` and a `server` function, and no `tui`, is called as `server(input,
- * options)`; named exports are not looked at.
- */
+/** As OpenCode 1.19 loads a plugin: a default export that is an object with an `id` and a `server`, and no `tui`, is called as `server(input, options)`; named exports go unread. */
 async function asOpenCode1(input: unknown): Promise<V1Hooks> {
   const { module, value } = await definition();
   expect(value !== null && typeof value === 'object').toBe(true);
@@ -99,11 +95,7 @@ const logPath = (): string => join(home.path, 'state', 'telmoni', 'opencode', 'p
 /** The fixture's times moved to now, as if it were happening as the test runs. */
 const now = <T>(fixture: T): T => shifted(fixture, Date.now() - T0);
 
-/**
- * An OpenCode 1 fixture moved to now in place, once the plugin is loaded and
- * just before its events are replayed: the plugin reads a session's going
- * busy by its own clock, and a slow first import must not age the turn.
- */
+/** An OpenCode 1 fixture moved to now in place, once the plugin is loaded and just before its events replay: the plugin reads a session's going busy by its own clock, and a slow first import must not age the turn. */
 const happening = (fixture: V1Fixture): void => void Object.assign(fixture, now(fixture));
 
 const runs = (): number => ingest.spans().filter((span) => span.name === 'invoke_agent opencode').length;
@@ -211,7 +203,7 @@ describe('the plugin, as OpenCode 2 loads it', () => {
     expect(existsSync(logPath())).toBe(false);
   }, 20_000);
 
-  it('loaded twice, under both `plugin` and `plugins`, sends the same turn as the same bytes, which ingest answers once', async () => {
+  it('loaded twice, under both `plugin` and `plugins`, sends the same turn as the same bytes, which ingest stores once', async () => {
     const events = now(v2Fixture('turn')).events;
     const cleanups = [await asOpenCode2(fakeContext(events)), await asOpenCode2(fakeContext(events))];
     expect(await until(() => ingest.received.length === 2, 10_000)).toBe(true);
@@ -273,8 +265,7 @@ describe('the plugin, either way', () => {
     // Every hook OpenCode waits on while it works returned long before ingest answered anything.
     expect(slowest).toBeLessThan(500);
     expect(ingest.answered).toBe(0);
-    // At shutdown alone it waits for what is still to send — a one-shot run
-    // exits as its turn ends — and never past its cap.
+    // At shutdown alone it waits for what is still to send — a one-shot run exits as its turn ends — and never past its cap.
     started = performance.now();
     await hooks.dispose!();
     await (cleanup as V2Cleanup)();

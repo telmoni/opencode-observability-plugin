@@ -1,8 +1,6 @@
 /**
- * A turn of OpenCode as the SDK's run record, whichever major it came from:
- * the turn a run of `opencode`, the session its session, each reply of the
- * model a model call, each tool a tool call, and each subagent a step with
- * the subagent's own calls inside it.
+ * A turn of OpenCode as the SDK's run record, whichever major it came from: the turn a run of `opencode`, each reply a
+ * model call, each tool a tool call, and each subagent a step with the subagent's own calls inside it.
  */
 
 import { createHash } from 'node:crypto';
@@ -45,9 +43,8 @@ export function runIdOf(sessionId: string, anchor: string): string {
 }
 
 /**
- * OpenCode's provider ids where the GenAI conventions spell the same
- * provider otherwise; every other id is the same in both, or has no name in
- * the conventions and is sent as OpenCode gives it.
+ * OpenCode's provider ids where the GenAI conventions spell the same provider otherwise; every other id is the same in
+ * both, or has no name in the conventions and is sent as OpenCode gives it.
  */
 const PROVIDERS: ReadonlyMap<string, string> = new Map([
   ['amazon-bedrock', 'aws.bedrock'],
@@ -69,10 +66,8 @@ function countOf(value: unknown): number {
 }
 
 /**
- * OpenCode's token counts as the conventions count them. Both majors write
- * input apart from the cache's reads and writes, and output apart from
- * reasoning; the SDK takes input with the cache's tokens in it and output
- * with reasoning in it, the cache's two also given apart.
+ * OpenCode's token counts as the conventions count them: both majors write input apart from the cache's reads and
+ * writes and output apart from reasoning, where the SDK takes input and output with those in, the cache's two also apart.
  */
 export function usageOf(tokens: unknown): Usage | undefined {
   const counts = fieldsOf(tokens);
@@ -115,25 +110,26 @@ export function agentOf(value: unknown): string | undefined {
 }
 
 /**
- * A tool's name: a plain name, as every provider has a tool's, within the
- * 128 characters ingest takes. OpenCode 2 hands over whatever name the model
- * wrote, so anything else is text, and is recorded as `unknown`.
+ * A tool's name: a plain name, as every provider has a tool's, within the 145 characters ingest takes. OpenCode 2 hands
+ * over whatever name the model wrote, so anything else is text, and is recorded as `unknown`.
  */
-const TOOL_NAME = /^[\w.:@+-]{1,128}$/;
+const TOOL_NAME = /^[\w.:@+-]{1,145}$/;
 
 export function toolNameOf(value: unknown): string {
   return typeof value === 'string' && TOOL_NAME.test(value) ? value : 'unknown';
 }
 
-/** Ingest takes a provider's name to 128 characters, and a span's too: `chat <model>` for a model call's. */
+/** Ingest takes a model's and a provider's name to 128 characters, as the SDK does. */
 const NAME_MAX = 128;
-const MODEL_MAX = NAME_MAX - 'chat '.length;
 
 /** A name holds no control character. */
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 
 /** A file's path, which a model's name, chosen in a person's configuration, may be: never recorded. */
-const PATH = /^(?:[/\\~]|[A-Za-z]:[/\\])/;
+const PATH = /^(?:[/\\]|~(?:[/\\]|$)|\.{1,2}[/\\]|[A-Za-z]:[/\\]|file:)/i;
+
+/** A path ending in a local model's weights, from anywhere: the file's name is the model's, and is kept without its folders. */
+const MODEL_FILE = /[/\\]([^/\\]+\.(?:gguf|ggml|bin|safetensors|llamafile))$/i;
 
 /** `value`'s characters, as ingest counts them, where it is a name: something in it, and no control character. */
 function charactersOf(value: string): string[] | undefined {
@@ -141,10 +137,17 @@ function charactersOf(value: string): string[] | undefined {
   return name === '' || CONTROL.test(name) ? undefined : Array.from(name);
 }
 
-/** A model's name as OpenCode spells it, cut to what ingest takes, or `unknown` where it is no name. */
-export function modelNameOf(value: string): string {
-  const name = charactersOf(value)?.slice(0, MODEL_MAX).join('');
-  return name === undefined || PATH.test(name) ? 'unknown' : name;
+/**
+ * A model's name as OpenCode spells it, cut to what ingest takes: a model file's own name for its path, and `unknown`
+ * for any other path or no name.
+ */
+function modelNameOf(value: string): string {
+  const characters = charactersOf(value);
+  if (characters === undefined) return 'unknown';
+  const file = MODEL_FILE.exec(characters.join(''))?.[1];
+  if (file !== undefined) return Array.from(file).slice(0, NAME_MAX).join('');
+  const name = characters.slice(0, NAME_MAX).join('');
+  return PATH.test(name) ? 'unknown' : name;
 }
 
 /** A provider's name, the conventions' where they have one, or none where ingest would not take it whole. */
@@ -182,16 +185,26 @@ export function toolCall(name: string, span: Span): ToolCallRecord {
 /** A subagent's work: a step named by its agent, holding its calls, from the first of them to the last. */
 export function subagentStep(agent: string | undefined, span: Span, calls: readonly CallRecord[]): StepRecord {
   const inside = ordered(calls);
-  const start = Math.min(span.start, ...inside.map((call) => Number(call.start)));
-  const end = Math.max(span.start, span.end, ...inside.map((call) => Number(call.end)));
+  const { start, end } = boundsOf(span, inside);
   return settle<StepRecord>({ type: 'step', name: `subagent ${agent ?? 'unknown'}`, start, end, calls: inside }, span);
+}
+
+/** From the first start to the last end of `span` and `items`, a loop's, since a spread of a long turn's would throw. */
+function boundsOf(span: Span, items: ReadonlyArray<{ start: Date | number; end: Date | number }>): { start: number; end: number } {
+  let start = span.start;
+  let end = Math.max(span.start, span.end);
+  for (const item of items) {
+    start = Math.min(start, Number(item.start));
+    end = Math.max(end, Number(item.end));
+  }
+  return { start, end };
 }
 
 /**
  * In the order they started, so the record, and the ids the SDK derives from
  * each span's place in it, come out the same however OpenCode delivered them.
  */
-export function ordered<T extends { start: Date | number }>(items: readonly T[]): T[] {
+function ordered<T extends { start: Date | number }>(items: readonly T[]): T[] {
   const order = new Map(items.map((item, index) => [item, index]));
   return [...items].sort((a, b) => Number(a.start) - Number(b.start) || order.get(a)! - order.get(b)!);
 }
@@ -199,7 +212,6 @@ export function ordered<T extends { start: Date | number }>(items: readonly T[])
 /** The turn as a run, from its opening, or its first work, to the last of its work. */
 export function runOf(sessionId: string, anchor: string, span: Span, items: ReadonlyArray<CallRecord | StepRecord>): RunRecord {
   const inside = ordered(items);
-  const start = Math.min(span.start, ...inside.map((item) => Number(item.start)));
-  const end = Math.max(span.start, span.end, ...inside.map((item) => Number(item.end)));
+  const { start, end } = boundsOf(span, inside);
   return settle<RunRecord>({ runId: runIdOf(sessionId, anchor), agent: AGENT, sessionId, start, end, inside }, span);
 }

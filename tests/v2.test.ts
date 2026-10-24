@@ -100,6 +100,55 @@ describe('a turn of OpenCode 2', () => {
     expect([run.start, run.end]).toEqual([at(5_000), at(6_000)]);
   });
 
+  it('ends a reply asked again after its answer had begun at the retried answer’s end', () => {
+    const run = only(
+      replay([
+        event('session.execution.started', 0, { sessionID: 'ses_rt' }),
+        event('session.inbox.delivered', 10, { sessionID: 'ses_rt', inboxID: 'msg_rt_u' }),
+        step('ses_rt', 'msg_rt_a', 100),
+        event('session.step.streamed', 600, { sessionID: 'ses_rt', assistantMessageID: 'msg_rt_a' }),
+        event('session.retry.scheduled', 700, { sessionID: 'ses_rt', assistantMessageID: 'msg_rt_a', attempt: 1, at: at(1_000), error: { type: 'provider.rate-limit', message: '…', status: 429 } }),
+        step('ses_rt', 'msg_rt_a', 1_000),
+        event('session.step.streamed', 2_000, { sessionID: 'ses_rt', assistantMessageID: 'msg_rt_a' }),
+        event('session.step.ended', 2_010, { sessionID: 'ses_rt', assistantMessageID: 'msg_rt_a', finish: 'stop', cost: 0, tokens }),
+        event('session.execution.succeeded', 2_100, { sessionID: 'ses_rt' }),
+      ]).sent,
+    );
+    expect((run.inside ?? []).map((item) => [item.type, item.start, item.end])).toEqual([['model_call', at(100), at(2_000)]]);
+  });
+
+  it('counts a compaction that failed, which names no model, as a model call of `unknown` failed with its error’s kind', () => {
+    const error = { type: 'provider.overloaded', message: '…' };
+    const run = only(
+      replay([
+        event('session.execution.started', 0, { sessionID: 'ses_cf' }),
+        event('session.inbox.delivered', 10, { sessionID: 'ses_cf', inboxID: 'msg_cf_in' }),
+        ...reply('ses_cf', 'msg_cf_a', 50),
+        event('session.compaction.started', 1_000, { sessionID: 'ses_cf', reason: 'auto', recent: '…' }),
+        event('session.compaction.failed', 2_000, { sessionID: 'ses_cf', reason: 'auto', error, cost: 0, tokens }),
+        event('session.execution.failed', 2_100, { sessionID: 'ses_cf', error }),
+      ]).sent,
+    );
+    const compaction = (run.inside ?? []).find((item): item is ModelCallRecord => item.type === 'model_call' && item.model === 'unknown')!;
+    expect([compaction.start, compaction.end, compaction.usage?.inputTokens]).toEqual([at(1_000), at(2_000), 10]);
+    expect([compaction.errorType, run.errorType]).toEqual(['provider.overloaded', 'provider.overloaded']);
+  });
+
+  it('counts a compaction the person stopped as a model call cancelled', () => {
+    const run = only(
+      replay([
+        event('session.execution.started', 0, { sessionID: 'ses_ca' }),
+        event('session.inbox.delivered', 10, { sessionID: 'ses_ca', inboxID: 'msg_ca_in' }),
+        ...reply('ses_ca', 'msg_ca_a', 50),
+        event('session.compaction.started', 1_000, { sessionID: 'ses_ca', reason: 'auto', recent: '…' }),
+        event('session.compaction.failed', 2_000, { sessionID: 'ses_ca', reason: 'auto', error: { type: 'aborted', message: '…' }, cost: 0, tokens }),
+        event('session.execution.succeeded', 2_100, { sessionID: 'ses_ca' }),
+      ]).sent,
+    );
+    const compaction = (run.inside ?? []).find((item): item is ModelCallRecord => item.type === 'model_call' && item.model === 'unknown')!;
+    expect([compaction.start, compaction.end, compaction.cancelled, compaction.errorType]).toEqual([at(1_000), at(2_000), true, undefined]);
+  });
+
   it('counts a compaction’s request to the model as a model call', () => {
     const run = only(
       replay([
@@ -133,6 +182,31 @@ describe('a turn of OpenCode 2', () => {
 });
 
 describe('a subagent in OpenCode 2', () => {
+  it('seen at work before the call that started it names it, is that call’s step, and no run of its own', () => {
+    const call = subagentCall('ses_root', 'call_sub', 'ses_child', 1_000, 4_000);
+    const run = only(
+      replay([
+        event('session.execution.started', 0, { sessionID: 'ses_root' }),
+        event('session.inbox.delivered', 10, { sessionID: 'ses_root', inboxID: 'msg_root_u' }),
+        step('ses_root', 'msg_root_a', 100),
+        call.open[0]!,
+        call.open[1]!,
+        // Its own execution, whose creation went unseen: no parent known yet.
+        event('session.execution.started', 1_015, { sessionID: 'ses_child' }),
+        ...reply('ses_child', 'msg_child_a', 1_100),
+        call.open[2]!,
+        event('session.execution.succeeded', 3_000, { sessionID: 'ses_child' }),
+        call.close,
+        event('session.step.streamed', 4_100, { sessionID: 'ses_root', assistantMessageID: 'msg_root_a' }),
+        event('session.step.ended', 4_110, { sessionID: 'ses_root', assistantMessageID: 'msg_root_a', finish: 'stop', cost: 0, tokens }),
+        event('session.execution.succeeded', 5_000, { sessionID: 'ses_root' }),
+      ]).sent,
+    );
+    expect(run.runId).toBe(runIdOf('ses_root', 'msg_root_u'));
+    const found = (run.inside ?? []).find((item): item is StepRecord => item.type === 'step')!;
+    expect((found.calls ?? []).map((item) => [item.type, item.start, item.end])).toEqual([['model_call', at(1_100), at(1_600)]]);
+  });
+
   it('is a step named by its agent holding its calls, and its own execution is no run of its own', () => {
     const run = only(replay('subagent').sent);
     expect(run.runId).toBe(runIdOf('ses_v2_root_0002', 'msg_v2_u_0101'));
@@ -333,6 +407,28 @@ describe('an OpenCode 2 tool call', () => {
     expect(JSON.stringify(run)).not.toContain('functions.read:0');
   });
 
+  it('is told from a call of a later reply that its provider gave the same id', () => {
+    const call = (assistantMessageID: string, ms: number, settled: string): V2Event[] => [
+      event('session.tool.input.started', ms, { sessionID: 'ses_kimi', assistantMessageID, id: 'functions.read:0', name: 'read' }),
+      event('session.tool.called', ms + 20, { sessionID: 'ses_kimi', assistantMessageID, id: 'functions.read:0', input: {}, executed: true }),
+      event(settled, ms + 400, { sessionID: 'ses_kimi', assistantMessageID, id: 'functions.read:0', error: { type: 'tool.execution', message: '…' }, executed: true }),
+    ];
+    const events: V2Event[] = [
+      event('session.execution.started', 0, { sessionID: 'ses_kimi' }),
+      event('session.inbox.delivered', 5, { sessionID: 'ses_kimi', inboxID: 'msg_kimi_u' }),
+      ...reply('ses_kimi', 'msg_kimi_a', 100),
+      ...call('msg_kimi_a', 700, 'session.tool.success'),
+      ...reply('ses_kimi', 'msg_kimi_b', 1_200),
+      ...call('msg_kimi_b', 1_800, 'session.tool.failed'),
+      event('session.execution.succeeded', 3_000, { sessionID: 'ses_kimi' }),
+    ];
+    const run = only(replay(events).sent);
+    expect((run.inside ?? []).filter((item) => item.type === 'tool_call')).toEqual([
+      { type: 'tool_call', name: 'read', start: at(720), end: at(1_100) },
+      { type: 'tool_call', name: 'read', start: at(1_820), end: at(2_200), errorType: 'ToolError' },
+    ]);
+  });
+
   it('is named `unknown` where the model made up a name that reads like text', () => {
     const events: V2Event[] = [
       event('session.execution.started', 0, { sessionID: 'ses_odd' }),
@@ -349,8 +445,7 @@ describe('an OpenCode 2 tool call', () => {
 
 describe('an OpenCode 2 turn whose clock runs backwards', () => {
   it('never holds a span that ends before it starts, which the SDK would refuse whole', () => {
-    // Every event of every fixture published in reverse time order, its
-    // payload's own times kept: the worst a clock stepping back can do.
+    // Every event of every fixture published in reverse time order, its payload's own times kept: the worst a clock stepping back can do.
     for (const name of ['turn', 'subagent', 'interrupted', 'shutdown', 'failed']) {
       const events = v2Fixture(name).events;
       const times = events.map((each) => each.created as number).reverse();

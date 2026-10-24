@@ -1,4 +1,5 @@
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -67,6 +68,33 @@ describe('the key file', () => {
     }
     keyFile(opencodeConfig(), { apiKey: 'telmoni_file' }, 0o400);
     expect(settingsFrom({}, home.path).apiKey).toBe('telmoni_file');
+  });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('is passed over where another user owns it, which no chmod of the person’s mends', () => {
+    mkdirSync(opencodeConfig(), { recursive: true });
+    // Root's, and open to everyone: the owner is what is named.
+    symlinkSync('/etc/passwd', join(opencodeConfig(), KEY_FILE));
+    expect(settingsFrom({}, home.path)).toMatchObject({ apiKey: undefined, keyFileProblem: 'owned by another user' });
+  });
+
+  it.skipIf(process.platform === 'win32')('is never waited on where it is a FIFO nothing writes to', () => {
+    mkdirSync(opencodeConfig(), { recursive: true });
+    execFileSync('mkfifo', [join(opencodeConfig(), KEY_FILE)]);
+    expect(settingsFrom({}, home.path).keyFileProblem).toBe('not a file');
+  });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('says it cannot read one it may not open, by kind', () => {
+    keyFile(opencodeConfig(), { apiKey: 'telmoni_file' }, 0o000);
+    expect(settingsFrom({}, home.path)).toMatchObject({ apiKey: undefined, keyFileProblem: 'unreadable (Error:EACCES)' });
+  });
+
+  it('is passed over where a field is there but empty or no string, rather than send the key to the default endpoint', () => {
+    for (const endpoint of ['', '   ', null, 443, ['https://self.example']]) {
+      keyFile(opencodeConfig(), { apiKey: 'telmoni_file', endpoint });
+      expect(settingsFrom({}, home.path)).toMatchObject({ apiKey: undefined, endpoint: undefined, keyFileProblem: 'endpoint empty or not a string' });
+    }
+    keyFile(opencodeConfig(), { apiKey: '', endpoint: 'https://self.example' });
+    expect(settingsFrom({ TELMONI_API_KEY: 'telmoni_env' }, home.path)).toMatchObject({ endpoint: undefined, keyFileProblem: 'apiKey empty or not a string' });
   });
 
   it('says what is wrong with one that is not a key file, by kind', () => {

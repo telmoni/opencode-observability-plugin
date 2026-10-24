@@ -55,12 +55,7 @@ export function tempDir(): { path: string; remove: () => void } {
   return { path, remove: () => rmSync(path, { recursive: true, force: true }) };
 }
 
-/**
- * OpenCode 1's client as the plugin meets it, answering from a fixture's
- * sessions: a page of the newest messages before a cursor, oldest first,
- * with the cursor of the page before it in `X-Next-Cursor`, as OpenCode's
- * own server pages them.
- */
+/** OpenCode 1's client as the plugin meets it, answering from a fixture's sessions a page at a time, the newest before a cursor, with the page before's cursor in `X-Next-Cursor`. */
 export function fakeClient(fixture: V1Fixture): V1Client & { reads: Array<{ path: string; query?: unknown }> } {
   const reads: Array<{ path: string; query?: unknown }> = [];
   const notFound = (): V1Result => ({ error: { name: 'NotFoundError', data: { message: '…' } }, response: { status: 404, headers: new Headers() } });
@@ -167,17 +162,15 @@ export interface Received {
 }
 
 /**
- * Ingest as the SDK meets it: an OTLP/JSON lane that keeps what it is sent,
- * and answers `status`, `delayMs` late — never, at `Infinity`, until
- * `release` is called. A `200` carries `partial`, a partial success's
- * message, where it is set; a `429` or `503` asks to be tried again at once.
- * A body is stored the first time it is answered `200`, as ingest's claim
- * on a body answers its copies.
+ * Ingest as the SDK meets it: an OTLP/JSON lane that answers `status` after `delayMs` (never, at `Infinity`, until
+ * `release`), a `200` carrying `partial` where set, a `429` or `503` asking for a retry, and storing a body once.
  */
 export class FakeIngest {
   readonly received: Received[] = [];
   status = 200;
   partial: string | undefined;
+  /** A refusal's problem type, where set, its whole message as ingest words one with no detail. */
+  type: string | undefined;
   delayMs = 0;
   answered = 0;
   /** The most requests it was ever answering at once. */
@@ -203,6 +196,7 @@ export class FakeIngest {
         this.received.push({ url: request.url ?? '', headers: request.headers, body });
         const status = this.status;
         const partial = this.partial;
+        const type = this.type;
         const answer = (): void => {
           if (status === 200) {
             this.#stored.add(createHash('sha256').update(body).digest('hex'));
@@ -213,7 +207,7 @@ export class FakeIngest {
             response.end(JSON.stringify({ code: 14, message: '/errors/telemetry/store-unavailable: the span store is not taking rows; retry in a second' }));
           } else {
             response.writeHead(status, { 'Content-Type': 'application/json' });
-            response.end(JSON.stringify({ code: 7, message: '/errors/authz/forbidden: this API key does not hold the ingest scope' }));
+            response.end(JSON.stringify({ code: 7, message: type ?? '/errors/authz/forbidden: this API key does not hold the ingest scope' }));
           }
           this.#open -= 1;
           this.answered += 1;

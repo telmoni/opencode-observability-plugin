@@ -1,16 +1,6 @@
 /**
- * OpenCode 2: a plugin is a definition whose `setup` OpenCode calls with a
- * context, and the plugin follows the context's event stream. A turn is an
- * execution of a session, from `session.execution.started` to its success,
- * failure or interruption — an interruption by OpenCode's own shutdown aside,
- * since the execution resumed at its next start carries on the same turn.
- * Each event a record needs carries what it needs of it, so a turn's calls
- * are gathered as they come and nothing is read back.
- *
- * Of an event the plugin reads its type and time, and of its payload the
- * ids, the agent, the model and provider, token counts, a tool's name, the
- * kind of an error, and the subagent session a call started. Never a text, a
- * thought, a tool's input or output, a path, a title or an error's message.
+ * OpenCode 2: a plugin is a definition whose `setup` follows the context's event stream. A turn is an execution of a
+ * session, from `session.execution.started` to its success, failure or interruption (a shutdown's aside, resumed later); each event carries what the record needs, metadata alone.
  */
 
 import type { CallRecord, ModelCallRecord, RunRecord, StepRecord, Usage } from 'telmoni';
@@ -30,7 +20,7 @@ import {
   toolNameOf,
   usageOf,
 } from './record.js';
-import { connect } from './send.js';
+import { connectQuietly } from './send.js';
 
 /** OpenCode 2's kind for the error of something the person, or OpenCode, stopped. */
 const ABORTED = 'aborted';
@@ -68,6 +58,8 @@ interface Compaction {
   start: number;
   end?: number;
   usage?: Usage;
+  errorType?: string;
+  cancelled?: boolean;
 }
 
 /** What a session has done that a record may hold. */
@@ -99,6 +91,13 @@ function newWork(): Work {
   return { replies: new Map(), tools: new Map(), compactions: [] };
 }
 
+/** A call's key: its provider's id within the reply that asked for it, since a provider may number calls afresh each reply. */
+function callKeyOf(data: Fields): string | undefined {
+  const id = keyOf(data['id']);
+  const reply = idOf(data['assistantMessageID']);
+  return id === undefined || reply === undefined ? id : `${reply}/${id}`;
+}
+
 function settledAs(error: unknown): Pick<Span, 'errorType' | 'cancelled'> {
   const kind = fieldsOf(error)?.['type'];
   return kind === ABORTED ? { cancelled: true } : { errorType: errorTypeOf(kind, 'Error') };
@@ -123,9 +122,10 @@ function modelCallsOf(work: Work, until: number): ModelCallRecord[] {
     );
   }
   for (const compaction of work.compactions) {
-    // A compaction that failed names no model, and a model call needs one.
-    if (compaction.model === undefined || compaction.end === undefined) continue;
-    calls.push(modelCall(compaction.model, compaction.provider, { start: compaction.start, end: compaction.end }, compaction.usage));
+    if (compaction.end === undefined) continue;
+    const span = { start: compaction.start, end: compaction.end, errorType: compaction.errorType, cancelled: compaction.cancelled };
+    // One that failed names no model, only its tokens.
+    calls.push(modelCall(compaction.model ?? 'unknown', compaction.provider, span, compaction.usage));
   }
   return calls;
 }
@@ -208,6 +208,12 @@ export class V2Turns {
         if (agent !== undefined) session.agent ??= agent;
         return;
       }
+      case 'session.retry.scheduled': {
+        // Asked again: the reply's answer is the retry's, not the one it cut short.
+        const reply = this.#replyOf(sessionId, data);
+        if (reply !== undefined) delete reply.streamed;
+        return;
+      }
       case 'session.step.streamed': {
         const reply = this.#replyOf(sessionId, data);
         if (reply !== undefined) reply.streamed ??= at;
@@ -231,7 +237,7 @@ export class V2Turns {
         return;
       }
       case 'session.tool.input.started': {
-        const id = keyOf(data['id']);
+        const id = callKeyOf(data);
         // The name the model wrote, kept only where it is a plain name.
         const named = stringOf(data['name']);
         const name = named === undefined ? undefined : toolNameOf(named);
@@ -277,6 +283,7 @@ export class V2Turns {
         if (id !== undefined) compaction.model = id;
         if (provider !== undefined) compaction.provider = provider;
         if (usage !== undefined) compaction.usage = usage;
+        if (event.type === 'session.compaction.failed') Object.assign(compaction, settledAs(data['error']));
         return;
       }
       case 'session.execution.succeeded':
@@ -321,10 +328,8 @@ export class V2Turns {
   }
 
   /**
-   * Where the session's work goes, opening a turn for a model call in a
-   * session of its own where none is open: one already running when the
-   * plugin was loaded is recorded from there on. A subagent's work is kept
-   * only while the turn that started it runs; after it, nothing would hold it.
+   * Where the session's work goes, opening a turn for a model call in a session of its own where none is open, as one
+   * running when the plugin loaded; a subagent's work is kept only while the turn that started it runs.
    */
   #workOf(sessionId: string, at: number, opening: boolean): Work | undefined {
     const session = this.#session(sessionId);
@@ -343,14 +348,13 @@ export class V2Turns {
   }
 
   #toolOf(sessionId: string, data: Fields): Tool | undefined {
-    const id = keyOf(data['id']);
+    const id = callKeyOf(data);
     return id === undefined ? undefined : this.#work(sessionId)?.tools.get(id);
   }
 
   /**
-   * The call `data` names. A subagent's call names the session it started
-   * in its metadata, the one field of the metadata read; that session is
-   * then known to work for this one, even where its creation went unseen.
+   * The call `data` names. A subagent's call names the session it started in its metadata, the one field of it read;
+   * that session is then known to work for this one, even where its creation went unseen.
    */
   #link(sessionId: string, data: Fields): Tool | undefined {
     const tool = this.#toolOf(sessionId, data);
@@ -359,7 +363,18 @@ export class V2Turns {
     const child = idOf(metadata?.['sessionID']) ?? idOf(metadata?.['sessionId']);
     if (child !== undefined && child !== sessionId) {
       tool.child ??= child;
-      this.#session(child).parent ??= sessionId;
+      const session = this.#session(child);
+      if (session.parent === undefined) {
+        session.parent = sessionId;
+        // Taken for a session of its own until now: what it did is the call's work, never a run of its own; no one's, as
+        // `#workOf` would have it, past the depth followed or with no turn open at the top.
+        if (session.turn !== undefined) {
+          const { replies, tools, compactions } = session.turn;
+          delete session.turn;
+          const root = this.#rootOf(child);
+          if (root !== undefined && this.#sessions.get(root)?.turn !== undefined) session.work = { replies, tools, compactions };
+        }
+      }
     }
     return tool;
   }
@@ -418,7 +433,7 @@ export class V2Turns {
       calls.push(toolCall(tool.name, span));
       if (tool.child !== undefined && depth < MAX_DEPTH && SUBAGENT_TOOLS.has(tool.name)) {
         const next = runs.get(tool.child)?.find((start) => start > span.start) ?? Number.POSITIVE_INFINITY;
-        calls.push(...this.#subagentCalls(tool.child, span.start, next, until, depth + 1));
+        for (const call of this.#subagentCalls(tool.child, span.start, next, until, depth + 1)) calls.push(call);
       }
     }
     return calls;
@@ -448,24 +463,14 @@ async function follow(
 }
 
 /**
- * OpenCode 2's entry: called once where OpenCode loads the plugin. It
- * returns at once, the stream followed in the background. The cleanup it
- * returns alone waits, a few seconds at most: OpenCode runs it as it unloads
- * the plugin, and as its server shuts down.
+ * OpenCode 2's entry, called once as OpenCode loads the plugin: it returns at once, the stream followed in the
+ * background, and the cleanup it returns alone waits, a few seconds at most, as OpenCode unloads the plugin or its server shuts down.
  */
 export async function setup(context: V2Context): Promise<V2Cleanup | undefined> {
-  // OpenCode 1.19 sets a definition up too, through a host of its own with
-  // no event stream, after calling `server`, whose turns they are: here,
-  // with nothing to follow, the plugin keeps out, and says nothing.
+  // OpenCode 1.19 sets a definition up too, through a host with no event stream, after calling `server`, whose turns they are: with nothing to follow, the plugin keeps out.
   const events = context?.event;
   if (typeof events?.subscribe !== 'function') return undefined;
-  let connection: ReturnType<typeof connect>;
-  try {
-    connection = connect(2);
-  } catch {
-    // No folder known to say so in: a plugin that does nothing, rather than one OpenCode sees fail.
-    return undefined;
-  }
+  const connection = connectQuietly(2);
   if (connection === undefined) return undefined;
   const { outbox, log } = connection;
   const turns = new V2Turns({ send: (record) => outbox.send(record), log });

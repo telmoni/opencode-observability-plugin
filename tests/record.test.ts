@@ -99,24 +99,36 @@ describe('an error’s kind', () => {
 
 describe('a name a record holds', () => {
   it('is a tool’s where it is a plain name, and `unknown` where it reads like text the model wrote', () => {
-    for (const name of ['bash', 'github_create_issue', 'mcp__linear__list', 'functions.read', 'x'.repeat(128)]) {
+    for (const name of ['bash', 'github_create_issue', 'mcp__linear__list', 'functions.read', 'x'.repeat(145)]) {
       expect(toolCall(name, { start: at(0), end: at(1) }).name).toBe(name);
     }
-    for (const junk of ['read the file at /etc/hosts', 'a/b', '…', '', 'x'.repeat(129), 'tab\there']) {
+    for (const junk of ['read the file at /etc/hosts', 'a/b', '…', '', 'x'.repeat(146), 'tab\there']) {
       expect(toolCall(junk, { start: at(0), end: at(1) }).name).toBe('unknown');
     }
   });
 
-  it('is a model’s as OpenCode spells it, short enough that `chat <model>` fits ingest’s 128, and never a path', () => {
-    for (const model of ['claude-sonnet-4-5', 'anthropic/claude-sonnet-4.5', '@cf/meta/llama-3.1-8b-instruct', 'qwen2.5-coder:7b', 'claude-3-5-sonnet@20240620']) {
+  it('is a model’s as OpenCode spells it, within ingest’s 128, and never a path', () => {
+    for (const model of ['claude-sonnet-4-5', 'anthropic/claude-sonnet-4.5', '@cf/meta/llama-3.1-8b-instruct', 'qwen2.5-coder:7b', 'claude-3-5-sonnet@20240620', '~anthropic/claude-sonnet-latest', 'TheBloke/Mistral-7B-Instruct-v0.2-GGUF', 'models/gemini-2.5-pro', 'qwen2.5-coder-7b-q4_k_m.gguf']) {
       expect(modelCall(model, undefined, { start: at(0), end: at(1) }, undefined).model).toBe(model);
     }
     const long = modelCall('m'.repeat(200), undefined, { start: at(0), end: at(1) }, undefined).model;
-    expect(long).toBe('m'.repeat(123));
-    expect(`chat ${long}`.length).toBe(128);
+    expect(long).toBe('m'.repeat(128));
     // Cut by characters, as ingest counts them, never inside one.
-    expect(modelCall('😀'.repeat(130), undefined, { start: at(0), end: at(1) }, undefined).model).toBe('😀'.repeat(123));
-    for (const path of ['/home/someone/models/llama.gguf', '~/models/x', 'C:\\models\\x', 'D:/models/x', 'a\nb', ' ']) {
+    expect(modelCall('😀'.repeat(130), undefined, { start: at(0), end: at(1) }, undefined).model).toBe('😀'.repeat(128));
+    const files: Array<[string, string]> = [
+      ['/home/someone/models/llama.gguf', 'llama.gguf'],
+      ['models/x.gguf', 'x.gguf'],
+      ['./models/x.gguf', 'x.gguf'],
+      ['../acme/models/x.Q4_K_M.gguf', 'x.Q4_K_M.gguf'],
+      ['TheBloke/Mistral-7B-Instruct-v0.2-GGUF/mistral-7b-instruct-v0.2.Q4_K_M.gguf', 'mistral-7b-instruct-v0.2.Q4_K_M.gguf'],
+      ['~/models/ggml-model-q4_0.bin', 'ggml-model-q4_0.bin'],
+      ['C:\\Users\\someone\\models\\m.safetensors', 'm.safetensors'],
+      ['file:///home/someone/m.GGUF', 'm.GGUF'],
+      ['/opt/x.llamafile', 'x.llamafile'],
+      [`/home/someone/${'deep/'.repeat(30)}m.ggml`, 'm.ggml'],
+    ];
+    for (const [path, file] of files) expect(modelCall(path, undefined, { start: at(0), end: at(1) }, undefined).model).toBe(file);
+    for (const path of ['~/models/x', '~', 'C:\\models\\x', 'D:/models/x', '.\\models\\x', '/opt/models/llama-3-8b', '/home/someone', 'file:///home/someone/m', 'FILE:m.gguf', 'a\nb', ' ']) {
       expect(modelCall(path, undefined, { start: at(0), end: at(1) }, undefined).model).toBe('unknown');
     }
   });
@@ -141,6 +153,14 @@ describe('a run', () => {
     expect(run.cancelled).toBe(true);
     expect(early.provider).toBe('gcp.gemini');
     expect(late.errorType).toBe('ToolError');
+  });
+
+  it('takes a turn of any length, past the calls a spread of them could hold', () => {
+    const calls = Array.from({ length: 200_000 }, (_, index) => toolCall('read', { start: at(index), end: at(index + 1) }));
+    const run = runOf('ses_long', 'msg_1', { start: at(0), end: at(1) }, calls);
+    expect([run.start, run.end]).toEqual([at(0), at(200_000)]);
+    const step = subagentStep('explore', { start: at(5), end: at(6) }, calls);
+    expect([step.start, step.end]).toEqual([at(0), at(200_000)]);
   });
 
   it('never ends a call before it starts, and a failure outranks a cancellation', () => {

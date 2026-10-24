@@ -1,9 +1,6 @@
 /**
- * Where the plugin sends, and where it keeps its log: the SDKs' own
- * variables first, then `telmoni.json` in OpenCode's configuration folder,
- * which the plugin reads and never writes. Its log lives in the person's
- * state folder, never beside OpenCode's configuration: OpenCode 2 watches
- * that folder and reloads its configuration on every write there.
+ * Where the plugin sends, and where it keeps its log: the SDKs' own variables first, then `telmoni.json` in OpenCode's
+ * configuration folder, read and never written; the log lives in the state folder, since OpenCode 2 reloads its configuration on every write beside it.
  */
 
 import { closeSync, constants, fstatSync, openSync, readFileSync } from 'node:fs';
@@ -34,9 +31,8 @@ function value(env: NodeJS.ProcessEnv, name: string): string | undefined {
 }
 
 /**
- * An absolute folder from `env`, or nothing: the XDG specification has a
- * relative one ignored, and a folder relative to wherever OpenCode was
- * started would be the project's, which the person may not trust.
+ * An absolute folder from `env`, or nothing: the XDG specification has a relative one ignored, and a folder relative to
+ * wherever OpenCode was started would be the project's, which the person may not trust.
  */
 function absolute(env: NodeJS.ProcessEnv, name: string): string | undefined {
   const found = env[name]?.trim();
@@ -44,9 +40,8 @@ function absolute(env: NodeJS.ProcessEnv, name: string): string | undefined {
 }
 
 /**
- * Where a person keeps the key file: OpenCode's own configuration folders,
- * `OPENCODE_CONFIG_DIR` first where it is set, then `XDG_CONFIG_HOME`'s.
- * Both OpenCode 1 and 2 keep their configuration under XDG on macOS too.
+ * Where a person keeps the key file: OpenCode's own configuration folders, `OPENCODE_CONFIG_DIR` first where it is set,
+ * then `XDG_CONFIG_HOME`'s; both majors keep their configuration under XDG on macOS too.
  */
 export function configDirs(env: NodeJS.ProcessEnv, home: string): string[] {
   const dirs: string[] = [];
@@ -64,10 +59,8 @@ interface KeyFile {
 }
 
 /**
- * The key file at `path`, or nothing where there is none. It is read only if
- * it is the person's own and shut to everyone else, as `ssh` reads a key: one
- * others could write could name an endpoint of theirs, and the key would be
- * sent to it.
+ * The key file at `path`, or nothing where there is none. It is read only if it is the person's own and shut to everyone
+ * else, as `ssh` reads a key: one others could write could name an endpoint of theirs, and the key would be sent to it.
  */
 function readKeyFile(path: string): KeyFile | undefined {
   let fd: number;
@@ -86,9 +79,10 @@ function readKeyFile(path: string): KeyFile | undefined {
     const stat = fstatSync(fd);
     if (!stat.isFile()) return { problem: 'not a file' };
     if (process.platform !== 'win32') {
-      if ((stat.mode & 0o077) !== 0) return { problem: 'open to other users; chmod 600 it' };
+      // The owner first: another's file is not the person's to chmod.
       const uid = process.getuid?.();
       if (uid !== undefined && stat.uid !== uid) return { problem: 'owned by another user' };
+      if ((stat.mode & 0o077) !== 0) return { problem: 'open to other users; chmod 600 it' };
     }
     if (stat.size > MAX_KEY_FILE_BYTES) return { problem: 'too large' };
     parsed = JSON.parse(readFileSync(fd, 'utf8'));
@@ -100,10 +94,14 @@ function readKeyFile(path: string): KeyFile | undefined {
   const fields = fieldsOf(parsed);
   if (fields === undefined) return { problem: 'not a JSON object' };
   const file: KeyFile = {};
-  const apiKey = typeof fields['apiKey'] === 'string' ? fields['apiKey'].trim() : '';
-  const endpoint = typeof fields['endpoint'] === 'string' ? fields['endpoint'].trim() : '';
-  if (apiKey !== '') file.apiKey = apiKey;
-  if (endpoint !== '') file.endpoint = endpoint;
+  for (const field of ['apiKey', 'endpoint'] as const) {
+    const given = fields[field];
+    if (given === undefined) continue;
+    const value = typeof given === 'string' ? given.trim() : '';
+    // Passed over as unset, an endpoint meant would give way to the default, and the key go there.
+    if (value === '') return { problem: `${field} empty or not a string` };
+    file[field] = value;
+  }
   return file;
 }
 
@@ -121,8 +119,7 @@ export function settingsFrom(env: NodeJS.ProcessEnv, home: string = homeOf(env))
     keyFileProblem: undefined,
   };
   if (settings.apiKey !== undefined && settings.endpoint !== undefined) return settings;
-  // The first key file found is the one: a second, further down, is not a
-  // fallback for one that was refused.
+  // The first key file found is the one: a second, further down, is not a fallback for one that was refused.
   for (const dir of configDirs(env, home)) {
     const file = readKeyFile(join(dir, KEY_FILE));
     if (file === undefined) continue;

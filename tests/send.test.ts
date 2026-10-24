@@ -5,7 +5,7 @@ import type { RunRecord, StepRecord, ToolCallRecord } from 'telmoni';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { Outbox, Sender, connect, flushSecondsOf } from '../src/send';
-import { FakeIngest, at, attributesOf, tempDir } from './helpers';
+import { FakeIngest, at, attributesOf, tempDir, until } from './helpers';
 
 let ingest: FakeIngest;
 let endpoint: string;
@@ -59,13 +59,45 @@ describe('a sender', () => {
     expect(logged).toEqual([]);
   });
 
-  it('logs a turn the platform refused, naming why and nothing else', async () => {
-    ingest.status = 403;
+  it('passes over a turn refused for good, its key among it, and keeps one that may yet go, naming why and nothing else', async () => {
+    for (const status of [400, 401, 402, 403, 413, 500, 404]) {
+      ingest.status = status;
+      const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+      try {
+        expect(await sender.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'))).toBe(status !== 404);
+      } finally {
+        await sender.close();
+      }
+    }
+    expect(logged.map((line) => line.slice(0, line.indexOf(' /')))).toEqual([
+      ...[400, 401, 402, 403, 413, 500].map((status) => `refused, not sent again: telmoni: export refused with ${status}`),
+      'not sent; kept to send again: telmoni: export refused with 404',
+    ]);
+    for (const line of logged) expect(line).not.toContain('telmoni_test');
+  });
+
+  it('keeps a turn ingest refused for a fault of its database, which a later round may find mended', async () => {
+    ingest.status = 500;
+    ingest.type = '/errors/internal/database';
     const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
-    await sender.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
-    expect(logged).toHaveLength(1);
-    expect(logged[0]).toMatch(/^Telmoni did not take all of the turn: .*403/);
-    expect(logged[0]).not.toContain('telmoni_test');
+    try {
+      expect(await sender.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'))).toBe(false);
+    } finally {
+      await sender.close();
+    }
+    expect(logged).toEqual(['not sent; kept to send again: telmoni: export refused with 500 /errors/internal/database; the batch was dropped']);
+  });
+
+  it('counts a turn the SDK sent less a field it could not take as taken, rather than hold back every turn after it', async () => {
+    const call = { type: 'model_call' as const, model: 'claude-sonnet-4-5', provider: 'anthropic', start: at(0), end: at(4_000), usage: { inputTokens: -1 } };
+    const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+    try {
+      expect(await sender.send({ ...turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'), inside: [call] })).toBe(true);
+    } finally {
+      await sender.close();
+    }
+    expect(ingest.received).toHaveLength(1);
+    expect(logged).toEqual(['taken in part: telmoni: gen_ai.usage.input_tokens must be a whole number from 0 within 64 bits; the call is sent without it']);
   });
 
   it('passes over a turn the SDK refuses, sending nothing', async () => {
@@ -154,28 +186,30 @@ describe('the outbox', () => {
     20_000,
   );
 
-  it('passes over a turn Telmoni answered and refused, holding back none after it', async () => {
+  it('passes over a turn refused for good, holding back none after it, and keeps one that may yet go', async () => {
     const box = outbox();
-    ingest.status = 403;
+    ingest.status = 400;
     box.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
     await box.flush();
     expect(box.waiting).toBe(0);
-    ingest.status = 400;
+    ingest.status = 404;
     box.send(turn('4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e'));
     await box.flush();
-    expect(box.waiting).toBe(0);
+    expect(box.waiting).toBe(1);
     ingest.status = 200;
     box.send(turn('5f8a0c3e-7d4a-4b9c-9e2f-0a3b4c5d6e7f'));
     await box.flush();
-    // Each sent once: a refusal is the same whenever it is asked again.
+    expect(box.waiting).toBe(0);
+    // The one refused for good is never asked again; the one that may yet go goes again, oldest first.
     expect(runIdsSent()).toEqual([
       '3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d',
+      '4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e',
       '4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e',
       '5f8a0c3e-7d4a-4b9c-9e2f-0a3b4c5d6e7f',
     ]);
     expect(logged).toEqual([
-      'ses_send_000: Telmoni did not take all of the turn: telmoni: export refused with 403 /errors/authz/forbidden; the batch was dropped',
-      'ses_send_000: Telmoni did not take all of the turn: telmoni: export refused with 400 /errors/authz/forbidden; the batch was dropped',
+      'ses_send_000: refused, not sent again: telmoni: export refused with 400 /errors/authz/forbidden; the batch was dropped',
+      'ses_send_000: not sent; kept to send again: telmoni: export refused with 404 /errors/authz/forbidden; the batch was dropped',
     ]);
   });
 
@@ -189,7 +223,7 @@ describe('the outbox', () => {
     box.send(turn('4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e'));
     await box.flush();
     expect(runIdsSent()).toEqual(['3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d', '4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e']);
-    expect(logged).toEqual(['ses_send_000: Telmoni did not take all of the turn: telmoni: the server refused a span: name over its cap']);
+    expect(logged).toEqual(['ses_send_000: taken in part: telmoni: the server refused a span: name over its cap']);
   });
 
   it('asks a Telmoni that does not answer once a round, about its oldest turn, not once a turn', async () => {
@@ -202,6 +236,39 @@ describe('the outbox', () => {
     expect(box.waiting).toBe(2);
     // Two rounds, each the SDK's three attempts at the oldest turn alone.
     expect(runIdsSent()).toEqual(Array<string>(6).fill('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
+  });
+
+  it('tries a turn still waiting again on its own, though no turn ends, until it goes', async () => {
+    const answers = [false, false, true];
+    const tried: string[] = [];
+    const box = new Outbox({
+      sender: () => ({ send: async (record) => (tried.push(record.runId), answers.shift() ?? true), close: () => Promise.resolve() }),
+      log: (line) => void logged.push(line),
+      retryMs: 20,
+    });
+    box.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
+    expect(await until(() => box.waiting === 0, 2_000)).toBe(true);
+    expect(tried).toEqual(Array<string>(3).fill('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
+    // Nothing waits, so nothing more is tried.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(tried).toHaveLength(3);
+  });
+
+  it('tries nothing on its own once OpenCode shuts the plugin down', async () => {
+    let tries = 0;
+    const box = new Outbox({
+      sender: () => ({ send: async () => (tries++, false), close: () => Promise.resolve() }),
+      log: (line) => void logged.push(line),
+      retryMs: 100,
+    });
+    box.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
+    // A round has failed, and the next is on its way.
+    await box.flush();
+    await box.drain();
+    const drained = tries;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(tries).toBe(drained);
+    expect(box.waiting).toBe(1);
   });
 
   it('sends one turn at a time, however many end together', async () => {
@@ -276,6 +343,24 @@ describe('connecting', () => {
       expect(log).toContain('opencode 1: key file not used: not JSON');
       expect(log).toContain('opencode 2: key file not used: open to other users; chmod 600 it');
       for (const secret of ['telmoni_secret_0001', 'elsewhere', home.path]) expect(log).not.toContain(secret);
+    } finally {
+      home.remove();
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')('gives nothing past a key file it passed over, though the key is in the environment', () => {
+    const home = tempDir();
+    try {
+      const env = { HOME: home.path, XDG_STATE_HOME: join(home.path, 'state'), XDG_CONFIG_HOME: join(home.path, 'config'), TELMONI_API_KEY: 'telmoni_env_0001' };
+      const file = join(home.path, 'config', 'opencode', 'telmoni.json');
+      mkdirSync(join(home.path, 'config', 'opencode'), { recursive: true });
+      // Its endpoint a self-hosted one: the key must not go to the default instead.
+      writeFileSync(file, JSON.stringify({ endpoint: 'https://self-hosted.example' }));
+      chmodSync(file, 0o644);
+      expect(connect(1, env)).toBeUndefined();
+      const log = readFileSync(join(home.path, 'state', 'telmoni', 'opencode', 'plugin.log'), 'utf8');
+      expect(log).toContain('opencode 1: key file not used: open to other users; chmod 600 it; fix it, or set both TELMONI_API_KEY and TELMONI_ENDPOINT; nothing is sent until then');
+      for (const secret of ['telmoni_env_0001', 'self-hosted', home.path]) expect(log).not.toContain(secret);
     } finally {
       home.remove();
     }
