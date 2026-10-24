@@ -34,7 +34,7 @@ or:
 opencode plugin add @telmoni/opencode-observability-plugin
 ```
 
-One key is enough: OpenCode 2 reads an OpenCode 1 `plugin` list too, and sets the plugin up once even where it is named under both.
+One list is enough: OpenCode 2 reads an OpenCode 1 `plugin` list too, and sets the plugin up once even where it is named in both.
 
 ### From a checkout
 
@@ -63,7 +63,7 @@ chmod 600 ~/.config/opencode/telmoni.json
 }
 ```
 
-The plugin reads the file only while it is yours and shut to everyone else (`chmod 600`), and never writes it. `"endpoint"` defaults to `https://api.telmoni.com`; a self-hosted Telmoni gives its own machine host. Where you set `OPENCODE_CONFIG_DIR` or `XDG_CONFIG_HOME`, the file goes in that folder instead. `TELMONI_API_KEY` and `TELMONI_ENDPOINT`, in the environment OpenCode starts in, serve before the file.
+The plugin reads the file only while it is yours and shut to everyone else (`chmod 600`), never writes it, and sends nothing past one it refuses, even with `TELMONI_API_KEY` set, its log saying why. `"endpoint"` defaults to `https://api.telmoni.com`; a self-hosted Telmoni gives its own machine host. The plugin looks first in `OPENCODE_CONFIG_DIR`, where you set it to a full path, then in `XDG_CONFIG_HOME`'s `opencode` folder where you set that, and takes the first file it finds. `TELMONI_API_KEY` and `TELMONI_ENDPOINT`, in the environment OpenCode starts in, serve before the file's; with both set, the file is not read.
 
 Restart OpenCode: the plugin reads its key as OpenCode loads it.
 
@@ -75,11 +75,11 @@ Each turn — from your prompt to the agent's last reply, or to your interruptio
 - each tool call, by its name, with its time, failed where the tool failed and cancelled where you interrupted it;
 - each subagent, a step named by its agent (`subagent explore`) holding its own model and tool calls.
 
-A turn is sent as it ends, in the background, and a turn sent twice is stored once. A command you run yourself with `!` is not the agent's turn, and is not recorded.
+A turn is sent as it ends, in the background, and a turn sent twice within the hour is stored once. A command you run yourself with `!` is not the agent's turn, and is not recorded.
 
 ## When something is wrong
 
-The plugin never slows or interrupts OpenCode: nothing it does while OpenCode works waits on the network, and as OpenCode shuts down it waits three seconds at most for the turns still to send. Anything that went wrong is a line in `~/.local/state/telmoni/opencode/plugin.log` (under `XDG_STATE_HOME` where you set one), naming what kind of thing went wrong and never anything from your session. A turn that could not reach Telmoni is sent again as the next turn ends, while OpenCode runs; one Telmoni answered and refused is not, and the log says what it answered. A turn still running when OpenCode quits is not recorded, and one running when it reloads its plugins is recorded from the reload on; on OpenCode 2, a subagent at work then may show as a run of its own.
+The plugin never slows or interrupts OpenCode: nothing it does while OpenCode works waits on the network, and as OpenCode shuts down it waits three seconds at most for the turns still to send. Anything that went wrong is a line in `~/.local/state/telmoni/opencode/plugin.log` (under `XDG_STATE_HOME` where you set one), naming what kind of thing went wrong and never anything from your session. A turn Telmoni could not take — out of reach, busy, or its database failing it — is sent again every five minutes while OpenCode runs, and as the next turn ends (on OpenCode 1, the next in the same folder). One it took in part, or refused for good — its key among it, which the plugin reads only as OpenCode loads it — is not, and the log says what it answered. A turn still running when OpenCode quits is not recorded, and one running when it reloads its plugins is recorded from the reload on; on OpenCode 2, a subagent at work then may show as a run of its own.
 
 ## Uninstall
 

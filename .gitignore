@@ -1,6 +1,44 @@
-node_modules
-dist
-coverage
-*.tgz
+# ── Environment ───────────────────────────────────────────────────────────────
 .env
+# Every copy of it too: a backup like `.env.before-x` holds the same secrets.
 .env.*
+!.env.example
+
+# ── AI / tooling state ────────────────────────────────────────────────────────
+.claude/
+.agents/
+.gemini/
+.aider*
+.cursor/
+
+# ── Node ──────────────────────────────────────────────────────────────────────
+node_modules/
+dist/
+# The tarball `npm pack` writes.
+*.tgz
+
+# ── Test artifacts ────────────────────────────────────────────────────────────
+coverage/
+
+# ── Local ─────────────────────────────────────────────────────────────────────
+# The maintainer's own notes, never repo docs.
+scratch/
+*.log
+
+# ── Editor / OS ───────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.zed/
+.fleet/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+*.orig
+*.rej
+*.bak
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
