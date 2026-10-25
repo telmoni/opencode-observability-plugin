@@ -112,7 +112,7 @@ describe('a sender', () => {
     const sender = new Sender({ endpoint, apiKey: 'tm_test' }, (line) => void logged.push(line));
     expect(await sender.send({ ...turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'), inside: calls })).toBe(true);
     const spans = ingest.spans();
-    expect(spans).toHaveLength(3_002);
+    expect(spans).toHaveLength(3_001);
     expect(spans.filter((span) => span.name === 'invoke_agent opencode')).toHaveLength(1);
     expect(spans.filter((span) => span.name === 'execute_tool glob')).toHaveLength(3_000);
     expect(logged).toEqual([]);

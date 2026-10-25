@@ -42,7 +42,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.20.2",
-    "telmoni": "^0.1.0",
+    "telmoni": "^0.2.0",
     "tsup": "^9.0.0",
     "typescript": "^6.0.3",
     "vitest": "^5.0.0"
