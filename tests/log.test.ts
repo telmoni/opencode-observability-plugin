@@ -47,9 +47,9 @@ describe('the plugin’s log', () => {
   });
 
   it('names an error by its class and code, never its message', () => {
-    const error = Object.assign(new Error('/home/someone/.config/opencode/telmoni.json: telmoni_secret'), { code: 'EACCES' });
+    const error = Object.assign(new Error('/home/someone/.config/opencode/telmoni.json: tm_secret'), { code: 'EACCES' });
     expect(kindOf(error)).toBe('Error:EACCES');
     expect(kindOf(new TypeError('…'))).toBe('TypeError');
-    expect(kindOf('telmoni_secret')).toBe('string');
+    expect(kindOf('tm_secret')).toBe('string');
   });
 });

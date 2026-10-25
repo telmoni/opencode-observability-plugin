@@ -30,15 +30,15 @@ const opencodeConfig = (): string => join(home.path, '.config', 'opencode');
 describe('the key and the endpoint', () => {
   it('come from the SDKs’ own variables first, and then the key file is not read at all', () => {
     keyFile(opencodeConfig(), 'not json');
-    const settings = settingsFrom({ TELMONI_API_KEY: ' telmoni_env ', TELMONI_ENDPOINT: 'https://ingest.example' }, home.path);
-    expect(settings).toMatchObject({ apiKey: 'telmoni_env', endpoint: 'https://ingest.example', keyFileProblem: undefined });
+    const settings = settingsFrom({ TELMONI_API_KEY: ' tm_env ', TELMONI_ENDPOINT: 'https://ingest.example' }, home.path);
+    expect(settings).toMatchObject({ apiKey: 'tm_env', endpoint: 'https://ingest.example', keyFileProblem: undefined });
   });
 
   it('come from telmoni.json in OpenCode’s configuration folder where a variable is unset, each on its own', () => {
-    keyFile(opencodeConfig(), { apiKey: ' telmoni_file ', endpoint: 'https://file.example' });
-    expect(settingsFrom({}, home.path)).toMatchObject({ apiKey: 'telmoni_file', endpoint: 'https://file.example', keyFileProblem: undefined });
+    keyFile(opencodeConfig(), { apiKey: ' tm_file ', endpoint: 'https://file.example' });
+    expect(settingsFrom({}, home.path)).toMatchObject({ apiKey: 'tm_file', endpoint: 'https://file.example', keyFileProblem: undefined });
     expect(settingsFrom({ TELMONI_ENDPOINT: 'https://env.example', TELMONI_API_KEY: '  ' }, home.path)).toMatchObject({
-      apiKey: 'telmoni_file',
+      apiKey: 'tm_file',
       endpoint: 'https://env.example',
     });
   });
@@ -48,9 +48,9 @@ describe('the key and the endpoint', () => {
   });
 
   it('are looked for in the home of the environment the plugin was handed', () => {
-    keyFile(opencodeConfig(), { apiKey: 'telmoni_file' });
+    keyFile(opencodeConfig(), { apiKey: 'tm_file' });
     expect(settingsFrom({ HOME: home.path })).toMatchObject({
-      apiKey: 'telmoni_file',
+      apiKey: 'tm_file',
       dir: join(home.path, '.local', 'state', 'telmoni', 'opencode'),
     });
   });
@@ -59,15 +59,15 @@ describe('the key and the endpoint', () => {
 describe('the key file', () => {
   it.skipIf(process.platform === 'win32')('is read only where it is shut to everyone but its owner, as ssh reads a key', () => {
     for (const mode of [0o644, 0o640, 0o604, 0o620]) {
-      keyFile(opencodeConfig(), { apiKey: 'telmoni_file', endpoint: 'https://elsewhere.example' }, mode);
+      keyFile(opencodeConfig(), { apiKey: 'tm_file', endpoint: 'https://elsewhere.example' }, mode);
       expect(settingsFrom({}, home.path)).toMatchObject({
         apiKey: undefined,
         endpoint: undefined,
         keyFileProblem: 'open to other users; chmod 600 it',
       });
     }
-    keyFile(opencodeConfig(), { apiKey: 'telmoni_file' }, 0o400);
-    expect(settingsFrom({}, home.path).apiKey).toBe('telmoni_file');
+    keyFile(opencodeConfig(), { apiKey: 'tm_file' }, 0o400);
+    expect(settingsFrom({}, home.path).apiKey).toBe('tm_file');
   });
 
   it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('is passed over where another user owns it, which no chmod of the person’s mends', () => {
@@ -84,23 +84,23 @@ describe('the key file', () => {
   });
 
   it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('says it cannot read one it may not open, by kind', () => {
-    keyFile(opencodeConfig(), { apiKey: 'telmoni_file' }, 0o000);
+    keyFile(opencodeConfig(), { apiKey: 'tm_file' }, 0o000);
     expect(settingsFrom({}, home.path)).toMatchObject({ apiKey: undefined, keyFileProblem: 'unreadable (Error:EACCES)' });
   });
 
   it('is passed over where a field is there but empty or no string, rather than send the key to the default endpoint', () => {
     for (const endpoint of ['', '   ', null, 443, ['https://self.example']]) {
-      keyFile(opencodeConfig(), { apiKey: 'telmoni_file', endpoint });
+      keyFile(opencodeConfig(), { apiKey: 'tm_file', endpoint });
       expect(settingsFrom({}, home.path)).toMatchObject({ apiKey: undefined, endpoint: undefined, keyFileProblem: 'endpoint empty or not a string' });
     }
     keyFile(opencodeConfig(), { apiKey: '', endpoint: 'https://self.example' });
-    expect(settingsFrom({ TELMONI_API_KEY: 'telmoni_env' }, home.path)).toMatchObject({ endpoint: undefined, keyFileProblem: 'apiKey empty or not a string' });
+    expect(settingsFrom({ TELMONI_API_KEY: 'tm_env' }, home.path)).toMatchObject({ endpoint: undefined, keyFileProblem: 'apiKey empty or not a string' });
   });
 
   it('says what is wrong with one that is not a key file, by kind', () => {
     keyFile(opencodeConfig(), '{"apiKey": ');
     expect(settingsFrom({}, home.path).keyFileProblem).toBe('not JSON');
-    keyFile(opencodeConfig(), '["telmoni_file"]');
+    keyFile(opencodeConfig(), '["tm_file"]');
     expect(settingsFrom({}, home.path).keyFileProblem).toBe('not a JSON object');
     keyFile(opencodeConfig(), 'x'.repeat(70_000));
     expect(settingsFrom({}, home.path).keyFileProblem).toBe('too large');
@@ -118,10 +118,10 @@ describe('the key file', () => {
   it('is the first one found, even where it is refused and a later one would do', () => {
     const custom = join(home.path, 'custom');
     keyFile(custom, '{');
-    keyFile(opencodeConfig(), { apiKey: 'telmoni_file' });
+    keyFile(opencodeConfig(), { apiKey: 'tm_file' });
     expect(settingsFrom({ OPENCODE_CONFIG_DIR: custom }, home.path)).toMatchObject({ apiKey: undefined, keyFileProblem: 'not JSON' });
-    keyFile(custom, { apiKey: 'telmoni_custom' });
-    expect(settingsFrom({ OPENCODE_CONFIG_DIR: custom }, home.path).apiKey).toBe('telmoni_custom');
+    keyFile(custom, { apiKey: 'tm_custom' });
+    expect(settingsFrom({ OPENCODE_CONFIG_DIR: custom }, home.path).apiKey).toBe('tm_custom');
   });
 });
 

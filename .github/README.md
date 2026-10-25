@@ -59,7 +59,7 @@ chmod 600 ~/.config/opencode/telmoni.json
 
 ```json
 {
-  "apiKey": "telmoni_…"
+  "apiKey": "tm_…"
 }
 ```
 

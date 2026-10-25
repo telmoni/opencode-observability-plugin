@@ -44,13 +44,13 @@ function turn(runId: string): RunRecord {
 
 describe('a sender', () => {
   it('sends each turn through the SDK, to ingest, from one client', async () => {
-    const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+    const sender = new Sender({ endpoint, apiKey: 'tm_test' }, (line) => void logged.push(line));
     await sender.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
     await sender.send(turn('4e7f9b2d-6c3f-4a8b-8d1e-9f2a3b4c5d6e'));
     expect(ingest.received).toHaveLength(2);
     for (const request of ingest.received) {
       expect(request.url).toBe('/otlp/v1/traces');
-      expect(request.headers['authorization']).toBe('Bearer telmoni_test');
+      expect(request.headers['authorization']).toBe('Bearer tm_test');
     }
     const runs = ingest.spans().filter((span) => span.name === 'invoke_agent opencode');
     expect(runs.map((span) => attributesOf(span)['gen_ai.conversation.id'])).toEqual(['ses_send_0001', 'ses_send_0001']);
@@ -62,7 +62,7 @@ describe('a sender', () => {
   it('passes over a turn refused for good, its key among it, and keeps one that may yet go, naming why and nothing else', async () => {
     for (const status of [400, 401, 402, 403, 413, 500, 404]) {
       ingest.status = status;
-      const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+      const sender = new Sender({ endpoint, apiKey: 'tm_test' }, (line) => void logged.push(line));
       try {
         expect(await sender.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'))).toBe(status !== 404);
       } finally {
@@ -73,13 +73,13 @@ describe('a sender', () => {
       ...[400, 401, 402, 403, 413, 500].map((status) => `refused, not sent again: telmoni: export refused with ${status}`),
       'not sent; kept to send again: telmoni: export refused with 404',
     ]);
-    for (const line of logged) expect(line).not.toContain('telmoni_test');
+    for (const line of logged) expect(line).not.toContain('tm_test');
   });
 
   it('keeps a turn ingest refused for a fault of its database, which a later round may find mended', async () => {
     ingest.status = 500;
     ingest.type = '/errors/internal/database';
-    const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+    const sender = new Sender({ endpoint, apiKey: 'tm_test' }, (line) => void logged.push(line));
     try {
       expect(await sender.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'))).toBe(false);
     } finally {
@@ -90,7 +90,7 @@ describe('a sender', () => {
 
   it('counts a turn the SDK sent less a field it could not take as taken, rather than hold back every turn after it', async () => {
     const call = { type: 'model_call' as const, model: 'claude-sonnet-4-5', provider: 'anthropic', start: at(0), end: at(4_000), usage: { inputTokens: -1 } };
-    const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+    const sender = new Sender({ endpoint, apiKey: 'tm_test' }, (line) => void logged.push(line));
     try {
       expect(await sender.send({ ...turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'), inside: [call] })).toBe(true);
     } finally {
@@ -101,7 +101,7 @@ describe('a sender', () => {
   });
 
   it('passes over a turn the SDK refuses, sending nothing', async () => {
-    const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+    const sender = new Sender({ endpoint, apiKey: 'tm_test' }, (line) => void logged.push(line));
     await sender.send({ ...turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'), end: at(-1) });
     expect(ingest.received).toEqual([]);
     expect(logged).toEqual(['turn refused by the SDK: RangeError']);
@@ -109,7 +109,7 @@ describe('a sender', () => {
 
   it('sends a turn whole, past the 2,048 spans the SDK queues by default', async () => {
     const calls = Array.from({ length: 3_000 }, (_, index): ToolCallRecord => ({ type: 'tool_call', name: 'glob', start: at(index), end: at(index + 1) }));
-    const sender = new Sender({ endpoint, apiKey: 'telmoni_test' }, (line) => void logged.push(line));
+    const sender = new Sender({ endpoint, apiKey: 'tm_test' }, (line) => void logged.push(line));
     expect(await sender.send({ ...turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'), inside: calls })).toBe(true);
     const spans = ingest.spans();
     expect(spans).toHaveLength(3_002);
@@ -137,7 +137,7 @@ describe('a turn’s flush', () => {
 describe('the outbox', () => {
   const outbox = (keep?: number): Outbox =>
     new Outbox({
-      sender: (log) => new Sender({ endpoint, apiKey: 'telmoni_test' }, log),
+      sender: (log) => new Sender({ endpoint, apiKey: 'tm_test' }, log),
       log: (line) => void logged.push(line),
       ...(keep === undefined ? {} : { keep }),
     });
@@ -317,7 +317,7 @@ describe('connecting', () => {
     const home = tempDir();
     try {
       const env = { HOME: home.path, XDG_STATE_HOME: join(home.path, 'state') };
-      expect(connect(1, { ...env, TELMONI_API_KEY: 'telmoni_test', TELMONI_ENDPOINT: endpoint })?.outbox).toBeInstanceOf(Outbox);
+      expect(connect(1, { ...env, TELMONI_API_KEY: 'tm_test', TELMONI_ENDPOINT: endpoint })?.outbox).toBeInstanceOf(Outbox);
       expect(connect(2, env)).toBeUndefined();
       const log = readFileSync(join(home.path, 'state', 'telmoni', 'opencode', 'plugin.log'), 'utf8').trim().split('\n');
       expect(log).toHaveLength(1);
@@ -333,16 +333,16 @@ describe('connecting', () => {
       const env = { HOME: home.path, XDG_STATE_HOME: join(home.path, 'state'), XDG_CONFIG_HOME: join(home.path, 'config') };
       const file = join(home.path, 'config', 'opencode', 'telmoni.json');
       mkdirSync(join(home.path, 'config', 'opencode'), { recursive: true });
-      writeFileSync(file, '{ "apiKey": "telmoni_secret_0001", ');
+      writeFileSync(file, '{ "apiKey": "tm_secret_0001", ');
       chmodSync(file, 0o600);
       expect(connect(1, env)).toBeUndefined();
-      writeFileSync(file, JSON.stringify({ apiKey: 'telmoni_secret_0001', endpoint: 'https://elsewhere.example' }));
+      writeFileSync(file, JSON.stringify({ apiKey: 'tm_secret_0001', endpoint: 'https://elsewhere.example' }));
       chmodSync(file, 0o644);
       expect(connect(2, env)).toBeUndefined();
       const log = readFileSync(join(home.path, 'state', 'telmoni', 'opencode', 'plugin.log'), 'utf8');
       expect(log).toContain('opencode 1: key file not used: not JSON');
       expect(log).toContain('opencode 2: key file not used: open to other users; chmod 600 it');
-      for (const secret of ['telmoni_secret_0001', 'elsewhere', home.path]) expect(log).not.toContain(secret);
+      for (const secret of ['tm_secret_0001', 'elsewhere', home.path]) expect(log).not.toContain(secret);
     } finally {
       home.remove();
     }
@@ -351,7 +351,7 @@ describe('connecting', () => {
   it.skipIf(process.platform === 'win32')('gives nothing past a key file it passed over, though the key is in the environment', () => {
     const home = tempDir();
     try {
-      const env = { HOME: home.path, XDG_STATE_HOME: join(home.path, 'state'), XDG_CONFIG_HOME: join(home.path, 'config'), TELMONI_API_KEY: 'telmoni_env_0001' };
+      const env = { HOME: home.path, XDG_STATE_HOME: join(home.path, 'state'), XDG_CONFIG_HOME: join(home.path, 'config'), TELMONI_API_KEY: 'tm_env_0001' };
       const file = join(home.path, 'config', 'opencode', 'telmoni.json');
       mkdirSync(join(home.path, 'config', 'opencode'), { recursive: true });
       // Its endpoint a self-hosted one: the key must not go to the default instead.
@@ -360,7 +360,7 @@ describe('connecting', () => {
       expect(connect(1, env)).toBeUndefined();
       const log = readFileSync(join(home.path, 'state', 'telmoni', 'opencode', 'plugin.log'), 'utf8');
       expect(log).toContain('opencode 1: key file not used: open to other users; chmod 600 it; fix it, or set both TELMONI_API_KEY and TELMONI_ENDPOINT; nothing is sent until then');
-      for (const secret of ['telmoni_env_0001', 'self-hosted', home.path]) expect(log).not.toContain(secret);
+      for (const secret of ['tm_env_0001', 'self-hosted', home.path]) expect(log).not.toContain(secret);
     } finally {
       home.remove();
     }
@@ -369,7 +369,7 @@ describe('connecting', () => {
   it('takes an endpoint without its scheme as the SDK reads one, and sends to it', async () => {
     const home = tempDir();
     try {
-      const env = { HOME: home.path, XDG_STATE_HOME: join(home.path, 'state'), TELMONI_API_KEY: 'telmoni_test' };
+      const env = { HOME: home.path, XDG_STATE_HOME: join(home.path, 'state'), TELMONI_API_KEY: 'tm_test' };
       expect(connect(2, { ...env, TELMONI_ENDPOINT: 'api.telmoni.example' })?.outbox).toBeInstanceOf(Outbox);
       const connection = connect(1, { ...env, TELMONI_ENDPOINT: endpoint.replace('http://', '') });
       connection?.outbox.send(turn('3d6f8a1c-5b2e-4f7a-9c0d-8e1f2a3b4c5d'));
@@ -384,7 +384,7 @@ describe('connecting', () => {
   it('gives nothing where the SDK refuses the endpoint, and logs the SDK’s reason, which names no path, key or password', () => {
     const home = tempDir();
     try {
-      const env = { HOME: home.path, XDG_STATE_HOME: join(home.path, 'state'), TELMONI_API_KEY: 'telmoni_test' };
+      const env = { HOME: home.path, XDG_STATE_HOME: join(home.path, 'state'), TELMONI_API_KEY: 'tm_test' };
       for (const bad of ['ftp://ingest.example/private', 'https://', 'https://someone:hunter2@ingest.example/private', 'http://ingest.example/private']) {
         expect(connect(2, { ...env, TELMONI_ENDPOINT: bad })).toBeUndefined();
       }
@@ -396,7 +396,7 @@ describe('connecting', () => {
         `${refused} the endpoint must be an http:// or https:// URL`,
         `${refused} refusing to send the API key over unencrypted HTTP to 'ingest.example'; use HTTPS`,
       ]);
-      for (const secret of ['private', 'someone', 'hunter2', 'telmoni_test']) expect(log.join('\n')).not.toContain(secret);
+      for (const secret of ['private', 'someone', 'hunter2', 'tm_test']) expect(log.join('\n')).not.toContain(secret);
     } finally {
       home.remove();
     }

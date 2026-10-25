@@ -77,7 +77,7 @@ beforeEach(async () => {
   process.env['XDG_STATE_HOME'] = join(home.path, 'state');
   process.env['XDG_CONFIG_HOME'] = join(home.path, 'config');
   delete process.env['OPENCODE_CONFIG_DIR'];
-  process.env['TELMONI_API_KEY'] = 'telmoni_test';
+  process.env['TELMONI_API_KEY'] = 'tm_test';
   process.env['TELMONI_ENDPOINT'] = endpoint;
 });
 
@@ -123,7 +123,7 @@ describe('the plugin, as OpenCode 1 loads it', () => {
     expect(spans.filter((span) => span.name.startsWith('execute_tool ')).map((span) => span.name).sort()).toEqual(
       ['bash', 'edit', 'glob', 'grep', 'read'].map((name) => `execute_tool ${name}`),
     );
-    expect(ingest.received[0]!.headers['authorization']).toBe('Bearer telmoni_test');
+    expect(ingest.received[0]!.headers['authorization']).toBe('Bearer tm_test');
     const bodies = ingest.received.map((request) => request.body).join('');
     expect(bodies).not.toContain('…');
     expect(bodies).not.toContain('/work');
@@ -179,13 +179,13 @@ describe('the plugin, as OpenCode 2 loads it', () => {
     delete process.env['TELMONI_ENDPOINT'];
     const config = join(home.path, 'config', 'opencode');
     mkdirSync(config, { recursive: true });
-    writeFileSync(join(config, 'telmoni.json'), JSON.stringify({ apiKey: 'telmoni_file', endpoint }));
+    writeFileSync(join(config, 'telmoni.json'), JSON.stringify({ apiKey: 'tm_file', endpoint }));
     chmodSync(join(config, 'telmoni.json'), 0o600);
     const context = fakeContext(now(v2Fixture('subagent')).events);
     const cleanup = await asOpenCode2(context);
     expect(typeof cleanup).toBe('function');
     expect(await until(() => runs() === 1, 10_000)).toBe(true);
-    expect(ingest.received[0]!.headers['authorization']).toBe('Bearer telmoni_file');
+    expect(ingest.received[0]!.headers['authorization']).toBe('Bearer tm_file');
     const spans = ingest.spans();
     const run = spans.find((span) => span.name === 'invoke_agent opencode')!;
     expect(attributesOf(run)['telmoni.run_id']).toBe(runIdOf('ses_v2_root_0002', 'msg_v2_u_0101'));
