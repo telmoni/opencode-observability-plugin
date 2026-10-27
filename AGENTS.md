@@ -20,8 +20,7 @@ The OpenCode plugin for Telmoni ([`telmoni/opencode-observability-plugin`](https
 | `src/send.ts`, `src/settings.ts`, `src/log.ts`, `src/opencode.ts` | Sending through the SDK; the key, endpoint and folders; `plugin.log`; the shapes of OpenCode's the plugin reads, defined here with their guards. |
 | `tests/` | The suites; `tests/fixtures/` holds synthetic sessions written from OpenCode's own shapes. |
 | `ARCHITECTURE.md` | How the plugin works, and why. |
-| [`telmoni/telmoni`](https://github.com/telmoni/telmoni) | Sibling repo, checked out as `../telmoni`: the SDK this plugin is built on (`sdk/typescript`, `recordRun`), which it takes from npm as `telmoni`. |
-| [`telmoni/docs`](https://github.com/telmoni/docs) | Sibling repo, checked out as `../docs`: the book, whose `api/coding-agents.mdx` documents this plugin. |
+| [`telmoni/telmoni`](https://github.com/telmoni/telmoni) | Sibling repo, checked out as `../telmoni`: the SDK this plugin is built on (`sdk/typescript`, `recordRun`), which it takes from npm as `telmoni`, and the book, whose `web/content/docs/api/coding-agents.mdx` documents this plugin. |
 
 ## Commands
 - **After every change** (no permission needed; report failures verbatim): `make check` — the types, the bundle and the suites (`npm run verify`).
@@ -49,5 +48,5 @@ The OpenCode plugin for Telmoni ([`telmoni/opencode-observability-plugin`](https
 ## Definition of Done
 - [ ] `make check` passes, or the failure is reported verbatim.
 - [ ] No key, no text from a session and no path reaches a log, a record, a fixture or a commit.
-- [ ] `ARCHITECTURE.md` and `README.md` say what changed, and the book's `api/coding-agents.mdx` (`../docs`) is fixed or named.
+- [ ] `ARCHITECTURE.md` and `README.md` say what changed, and the book's `api/coding-agents.mdx` (`../telmoni/web/content/docs`) is fixed or named.
 - [ ] Nothing that needs asking happened unasked (dependencies, publishing, live calls, other repos, commits).
