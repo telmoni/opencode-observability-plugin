@@ -348,18 +348,18 @@ describe('connecting', () => {
     }
   });
 
-  it.skipIf(process.platform === 'win32')('gives nothing past a key file it passed over, though the key is in the environment', () => {
+  it.skipIf(process.platform === 'win32')('gives nothing past a key file it passed over, its key going nowhere', () => {
     const home = tempDir();
     try {
-      const env = { HOME: home.path, XDG_STATE_HOME: join(home.path, 'state'), XDG_CONFIG_HOME: join(home.path, 'config'), TELMONI_API_KEY: 'tm_env_0001' };
+      const env = { HOME: home.path, XDG_STATE_HOME: join(home.path, 'state'), XDG_CONFIG_HOME: join(home.path, 'config') };
       const file = join(home.path, 'config', 'opencode', 'telmoni.json');
       mkdirSync(join(home.path, 'config', 'opencode'), { recursive: true });
-      // Its endpoint a self-hosted one: the key must not go to the default instead.
-      writeFileSync(file, JSON.stringify({ endpoint: 'https://self-hosted.example' }));
+      // Its endpoint a self-hosted one: its key must not go to the default instead.
+      writeFileSync(file, JSON.stringify({ apiKey: 'tm_env_0001', endpoint: 'https://self-hosted.example' }));
       chmodSync(file, 0o644);
       expect(connect(1, env)).toBeUndefined();
       const log = readFileSync(join(home.path, 'state', 'telmoni', 'opencode', 'plugin.log'), 'utf8');
-      expect(log).toContain('opencode 1: key file not used: open to other users; chmod 600 it; fix it, or set both TELMONI_API_KEY and TELMONI_ENDPOINT; nothing is sent until then');
+      expect(log).toContain('opencode 1: key file not used: open to other users; chmod 600 it; fix it, or set TELMONI_API_KEY, with TELMONI_ENDPOINT for a Telmoni of your own; nothing is sent until then');
       for (const secret of ['tm_env_0001', 'self-hosted', home.path]) expect(log).not.toContain(secret);
     } finally {
       home.remove();

@@ -28,19 +28,21 @@ function keyFile(dir: string, content: unknown, mode = 0o600): void {
 const opencodeConfig = (): string => join(home.path, '.config', 'opencode');
 
 describe('the key and the endpoint', () => {
-  it('come from the SDKs’ own variables first, and then the key file is not read at all', () => {
+  it('come from the SDKs’ own variables where the key is there, and then the key file is not read at all', () => {
     keyFile(opencodeConfig(), 'not json');
     const settings = settingsFrom({ TELMONI_API_KEY: ' tm_env ', TELMONI_ENDPOINT: 'https://ingest.example' }, home.path);
     expect(settings).toMatchObject({ apiKey: 'tm_env', endpoint: 'https://ingest.example', keyFileProblem: undefined });
   });
 
-  it('come from telmoni.json in OpenCode’s configuration folder where a variable is unset, each on its own', () => {
+  it('come as a pair from telmoni.json where the key is not in the environment, never one from each place', () => {
     keyFile(opencodeConfig(), { apiKey: ' tm_file ', endpoint: 'https://file.example' });
     expect(settingsFrom({}, home.path)).toMatchObject({ apiKey: 'tm_file', endpoint: 'https://file.example', keyFileProblem: undefined });
+    // The file's key never goes to the environment's endpoint, nor the environment's key to the file's.
     expect(settingsFrom({ TELMONI_ENDPOINT: 'https://env.example', TELMONI_API_KEY: '  ' }, home.path)).toMatchObject({
       apiKey: 'tm_file',
-      endpoint: 'https://env.example',
+      endpoint: 'https://file.example',
     });
+    expect(settingsFrom({ TELMONI_API_KEY: 'tm_env' }, home.path)).toMatchObject({ apiKey: 'tm_env', endpoint: undefined });
   });
 
   it('are nothing where neither is set', () => {
@@ -94,7 +96,7 @@ describe('the key file', () => {
       expect(settingsFrom({}, home.path)).toMatchObject({ apiKey: undefined, endpoint: undefined, keyFileProblem: 'endpoint empty or not a string' });
     }
     keyFile(opencodeConfig(), { apiKey: '', endpoint: 'https://self.example' });
-    expect(settingsFrom({ TELMONI_API_KEY: 'tm_env' }, home.path)).toMatchObject({ endpoint: undefined, keyFileProblem: 'apiKey empty or not a string' });
+    expect(settingsFrom({}, home.path)).toMatchObject({ apiKey: undefined, endpoint: undefined, keyFileProblem: 'apiKey empty or not a string' });
   });
 
   it('says what is wrong with one that is not a key file, by kind', () => {

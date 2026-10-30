@@ -63,7 +63,7 @@ chmod 600 ~/.config/opencode/telmoni.json
 }
 ```
 
-The plugin reads the file only while it is yours and shut to everyone else (`chmod 600`), never writes it, and sends nothing past one it refuses, even with `TELMONI_API_KEY` set, its log saying why. `"endpoint"` defaults to `https://api.telmoni.com`; a self-hosted Telmoni gives its own machine host. The plugin looks first in `OPENCODE_CONFIG_DIR`, where you set it to a full path, then in `XDG_CONFIG_HOME`'s `opencode` folder where you set that, and takes the first file it finds. `TELMONI_API_KEY` and `TELMONI_ENDPOINT`, in the environment OpenCode starts in, serve before the file's; with both set, the file is not read.
+The plugin reads the file only while it is yours and shut to everyone else (`chmod 600`), never writes it, and sends nothing past one it refuses, its log saying why. `"endpoint"` defaults to `https://api.telmoni.com`; a self-hosted Telmoni gives its own machine host. The plugin looks first in `OPENCODE_CONFIG_DIR`, where you set it to a full path, then in `XDG_CONFIG_HOME`'s `opencode` folder where you set that, and takes the first file it finds. A `TELMONI_API_KEY` in the environment OpenCode starts in serves before the file, and goes with the `TELMONI_ENDPOINT` beside it there, or the default, never with the file's: a key is sent only to the endpoint named with it, and with the key set, the file is not read.
 
 Restart OpenCode: the plugin reads its key as OpenCode loads it.
 

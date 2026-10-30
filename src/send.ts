@@ -268,7 +268,7 @@ export function connect(major: 1 | 2, env: NodeJS.ProcessEnv = process.env): Con
   const log = (line: string): void => writeLog(settings.dir, `opencode ${major}: ${line}`);
   // The file passed over may have named the endpoint: the key never goes to the default in its place.
   if (settings.keyFileProblem !== undefined) {
-    log(`key file not used: ${settings.keyFileProblem}; fix it, or set both TELMONI_API_KEY and TELMONI_ENDPOINT; nothing is sent until then`);
+    log(`key file not used: ${settings.keyFileProblem}; fix it, or set TELMONI_API_KEY, with TELMONI_ENDPOINT for a Telmoni of your own; nothing is sent until then`);
     return undefined;
   }
   if (settings.apiKey === undefined) {

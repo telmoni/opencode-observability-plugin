@@ -114,11 +114,12 @@ export function settingsFrom(env: NodeJS.ProcessEnv, home: string = homeOf(env))
   const state = absolute(env, 'XDG_STATE_HOME') ?? (isAbsolute(home) ? join(home, '.local', 'state') : undefined);
   const settings: Settings = {
     apiKey: value(env, 'TELMONI_API_KEY'),
-    endpoint: value(env, 'TELMONI_ENDPOINT'),
+    endpoint: undefined,
     dir: state === undefined ? undefined : join(state, 'telmoni', 'opencode'),
     keyFileProblem: undefined,
   };
-  if (settings.apiKey !== undefined && settings.endpoint !== undefined) return settings;
+  // A key goes only to the endpoint named beside it: the environment's with the environment's, the file's with the file's.
+  if (settings.apiKey !== undefined) return { ...settings, endpoint: value(env, 'TELMONI_ENDPOINT') };
   // The first key file found is the one: a second, further down, is not a fallback for one that was refused.
   for (const dir of configDirs(env, home)) {
     const file = readKeyFile(join(dir, KEY_FILE));
@@ -126,8 +127,8 @@ export function settingsFrom(env: NodeJS.ProcessEnv, home: string = homeOf(env))
     if (file.problem !== undefined) {
       settings.keyFileProblem = file.problem;
     } else {
-      settings.apiKey ??= file.apiKey;
-      settings.endpoint ??= file.endpoint;
+      settings.apiKey = file.apiKey;
+      settings.endpoint = file.endpoint;
     }
     break;
   }
