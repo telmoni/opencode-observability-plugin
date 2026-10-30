@@ -297,7 +297,12 @@ export interface V1Deps {
   pageSize?: number;
   /** The clock a session's going busy is read from. */
   now?: () => number;
+  /** How long a turn whose read failed waits before its one more try; the tests' to shorten. */
+  retryMs?: number;
 }
+
+/** OpenCode's own server may be busy a moment: a turn's read is tried once more after this. */
+const RETRY_MS = 2_000;
 
 /** The turns of every session in the folder, each recorded once it has ended. */
 export class V1Turns {
@@ -381,9 +386,13 @@ export class V1Turns {
     if (open === undefined) return;
     this.#open.delete(sessionId);
     if (open.replies.size === 0) return;
-    const work = this.#record(sessionId, open.replies).catch((error: unknown) =>
-      this.#deps.log(`${tag(sessionId)}: turn not read: ${kindOf(error)}`),
-    );
+    const work = this.#record(sessionId, open.replies)
+      // One more try after a pause: the read is of OpenCode's own server, which may be busy.
+      .catch(async () => {
+        await new Promise((resolve) => setTimeout(resolve, this.#deps.retryMs ?? RETRY_MS));
+        return this.#record(sessionId, open.replies);
+      })
+      .catch((error: unknown) => this.#deps.log(`${tag(sessionId)}: turn not read: ${kindOf(error)}`));
     this.#pending.add(work);
     void work.finally(() => this.#pending.delete(work));
   }

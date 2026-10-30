@@ -643,9 +643,32 @@ describe('an OpenCode 1 read that fails', () => {
       ],
       sessions: {},
     };
-    const { sent, logged } = await replay(fixture);
+    const { sent, logged, reads } = await replay(fixture, { retryMs: 0 });
     expect(sent).toEqual([]);
     expect(logged).toEqual(['ses_gone_000: turn not read: ReadError:404']);
+    // Tried once more before it is given up.
+    expect(reads.filter((read) => read.path === '/session/ses_gone_0001/message')).toHaveLength(2);
+  });
+
+  it('is tried once more after a pause, and the turn recorded where OpenCode answers then', async () => {
+    const data = v1Fixture('turn');
+    const client = fakeClient(data);
+    let failed = false;
+    const messages = client.session.messages;
+    client.session.messages = async (request) => {
+      if (!failed) {
+        failed = true;
+        return { error: { name: 'ServerError', data: { message: '…' } }, response: { status: 503, headers: new Headers() } };
+      }
+      return messages(request);
+    };
+    const sent: RunRecord[] = [];
+    const logged: string[] = [];
+    const turns = new V1Turns({ client, send: (record) => void sent.push(record), log: (line) => void logged.push(line), now: () => T0, retryMs: 0 });
+    for (const event of data.events) turns.handle(event);
+    await turns.settled();
+    expect(sent).toHaveLength(1);
+    expect(logged).toEqual([]);
   });
 });
 
